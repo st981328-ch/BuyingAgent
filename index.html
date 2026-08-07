@@ -328,10 +328,14 @@ hr{border:none;border-top:1px solid rgba(0,0,0,.06);margin:16px 0;}
 <div id="backup-modal" style="display:none;position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.35);backdrop-filter:blur(3px)" onclick="if(event.target===this)closeBackupModal()">
   <div style="position:absolute;top:0;right:0;bottom:0;width:min(480px,100vw);background:var(--bg);overflow-y:auto;box-shadow:-4px 0 32px rgba(0,0,0,.18);display:flex;flex-direction:column">
     <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:#fff;border-bottom:1px solid rgba(0,0,0,.07);position:sticky;top:0;z-index:1">
-      <span style="font-weight:800;font-size:1.05rem">資料備份</span>
+      <span style="font-weight:800;font-size:1.05rem">資料備份 / 雲端同步</span>
       <button onclick="closeBackupModal()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--muted);line-height:1;padding:4px 8px">×</button>
     </div>
     <div style="padding:16px">
+      <div class="card" style="margin-bottom:14px">
+        <div style="font-weight:800;margin-bottom:8px">☁️ 雲端同步（手機／電腦自動同步）</div>
+        <div id="sync-body"></div>
+      </div>
       <div class="card">
         <div id="backup-status-block" class="backup-status">
           <div class="backup-status-dot none" id="backup-dot"></div>
@@ -680,6 +684,7 @@ function loadAppConfig() {
 }
 function saveAppConfig() {
   localStorage.setItem(rKey('app_config'), JSON.stringify(APP_CONFIG));
+  scheduleSyncPush();
 }
 function applyAppConfig() {
   document.documentElement.style.setProperty('--accent', APP_CONFIG.color);
@@ -765,7 +770,7 @@ function load() {
       const v = localStorage.getItem(oldKey);
       if (v !== null) { localStorage.setItem(rKey(suffix), v); localStorage.removeItem(oldKey); }
     });
-    localStorage.setItem('rounds_meta', JSON.stringify(ROUNDS_META));
+    localStorage.setItem('rounds_meta', JSON.stringify(ROUNDS_META)); scheduleSyncPush();
     localStorage.setItem('active_round_id', ACTIVE_ROUND_ID);
   } else {
     ROUNDS_META = meta;
@@ -802,11 +807,11 @@ function load() {
     STATUSES = ss || [...DEFAULT_STATUSES];
   } catch { STATUSES = [...DEFAULT_STATUSES]; }
 }
-function save()          { localStorage.setItem(rKey('orders'),    JSON.stringify(orders)); }
-function saveLayers()    { localStorage.setItem(rKey('layers'),    JSON.stringify(LAYERS)); }
-function savePlatforms() { localStorage.setItem(rKey('platforms'), JSON.stringify(PLATFORMS)); }
-function saveInventory() { localStorage.setItem(rKey('inventory'), JSON.stringify(INVENTORY)); }
-function saveStatuses()  { localStorage.setItem(rKey('statuses'),  JSON.stringify(STATUSES)); }
+function save()          { localStorage.setItem(rKey('orders'),    JSON.stringify(orders));     scheduleSyncPush(); }
+function saveLayers()    { localStorage.setItem(rKey('layers'),    JSON.stringify(LAYERS));     scheduleSyncPush(); }
+function savePlatforms() { localStorage.setItem(rKey('platforms'), JSON.stringify(PLATFORMS)); scheduleSyncPush(); }
+function saveInventory() { localStorage.setItem(rKey('inventory'), JSON.stringify(INVENTORY)); scheduleSyncPush(); }
+function saveStatuses()  { localStorage.setItem(rKey('statuses'),  JSON.stringify(STATUSES));  scheduleSyncPush(); }
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2,7);
 }
@@ -2219,7 +2224,7 @@ function createRound() {
   if (!name || !name.trim()) return;
   const id = 'r_' + Date.now().toString(36);
   ROUNDS_META.push({ id, name: name.trim(), createdAt: new Date().toISOString() });
-  localStorage.setItem('rounds_meta', JSON.stringify(ROUNDS_META));
+  localStorage.setItem('rounds_meta', JSON.stringify(ROUNDS_META)); scheduleSyncPush();
   switchRound(id);
 }
 
@@ -2269,7 +2274,7 @@ function renameRound(id) {
   const name = prompt('重新命名：', r.name);
   if (!name || !name.trim()) return;
   r.name = name.trim();
-  localStorage.setItem('rounds_meta', JSON.stringify(ROUNDS_META));
+  localStorage.setItem('rounds_meta', JSON.stringify(ROUNDS_META)); scheduleSyncPush();
   renderRoundSwitcher();
   if (id === ACTIVE_ROUND_ID) toast(`已重新命名為「${r.name}」`);
 }
@@ -2283,7 +2288,7 @@ function deleteRound(id) {
     localStorage.removeItem(id + '_' + suffix);
   });
   ROUNDS_META = ROUNDS_META.filter(x => x.id !== id);
-  localStorage.setItem('rounds_meta', JSON.stringify(ROUNDS_META));
+  localStorage.setItem('rounds_meta', JSON.stringify(ROUNDS_META)); scheduleSyncPush();
   if (ACTIVE_ROUND_ID === id) switchRound(ROUNDS_META[0].id);
   else renderRoundSwitcher();
   toast('已刪除代購');
@@ -2317,6 +2322,7 @@ function renderRoundSwitcher() {
 ───────────────────────────────────────── */
 function openBackupModal() {
   renderBackupStatus();
+  renderSyncStatus();
   document.getElementById('backup-modal').style.display = 'block';
 }
 function closeBackupModal() {
@@ -2428,20 +2434,43 @@ function renderAll() {
 /* ─────────────────────────────────────────
    BACKUP
 ───────────────────────────────────────── */
+const BACKUP_SUFFIXES = ['orders','layers','platforms','inventory','statuses','app_config'];
+
+// Serialize every round into one v2 backup object (shared by file export + cloud sync).
+function gatherBackupData() {
+  const data = { _version: 2, _exportedAt: new Date().toISOString(), rounds_meta: ROUNDS_META, active_round_id: ACTIVE_ROUND_ID };
+  ROUNDS_META.forEach(r => {
+    BACKUP_SUFFIXES.forEach(suffix => {
+      const v = localStorage.getItem(r.id + '_' + suffix);
+      if (v !== null) data[r.id + '_' + suffix] = JSON.parse(v);
+    });
+  });
+  return data;
+}
+
+// Overwrite all local rounds from a v2 backup object. Caller is responsible for reload. Returns false if not v2.
+function applyBackupData(data) {
+  if (!(data && data._version >= 2 && data.rounds_meta)) return false;
+  const existingMeta = JSON.parse(localStorage.getItem('rounds_meta') || '[]');
+  existingMeta.forEach(r => BACKUP_SUFFIXES.forEach(suffix => localStorage.removeItem(r.id + '_' + suffix)));
+  localStorage.setItem('rounds_meta', JSON.stringify(data.rounds_meta));
+  localStorage.setItem('active_round_id', data.active_round_id || data.rounds_meta[0].id);
+  data.rounds_meta.forEach(r => {
+    BACKUP_SUFFIXES.forEach(suffix => {
+      const k = r.id + '_' + suffix;
+      if (data[k] !== undefined) localStorage.setItem(k, JSON.stringify(data[k]));
+    });
+  });
+  return true;
+}
+
 function exportBackup() {
   const totalOrders = ROUNDS_META.reduce((sum, r) => {
     try { return sum + JSON.parse(localStorage.getItem(r.id + '_orders') || '[]').length; } catch { return sum; }
   }, 0);
   const roundNames = ROUNDS_META.map(r => `・${r.name}`).join('\n');
   if (!confirm(`確定要匯出備份檔？\n\n包含內容：\n${roundNames}\n共 ${totalOrders} 筆訂單\n\n備份檔將下載至您的裝置。`)) return;
-  const data = { _version: 2, _exportedAt: new Date().toISOString(), rounds_meta: ROUNDS_META, active_round_id: ACTIVE_ROUND_ID };
-  ROUNDS_META.forEach(r => {
-    ['orders','layers','platforms','inventory','statuses','app_config'].forEach(suffix => {
-      const k = r.id + '_' + suffix;
-      const v = localStorage.getItem(k);
-      if (v !== null) data[k] = JSON.parse(v);
-    });
-  });
+  const data = gatherBackupData();
   const json = JSON.stringify(data, null, 2);
   const now = new Date();
   const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
@@ -2470,20 +2499,7 @@ function importBackup(input) {
       if (!confirm(`確定要還原備份？\n備份時間：${timeStr}\n\n⚠️ 現有所有資料將被覆蓋！`)) { input.value=''; return; }
 
       if (isV2) {
-        // Clear all existing round data
-        const existingMeta = JSON.parse(localStorage.getItem('rounds_meta') || '[]');
-        existingMeta.forEach(r => {
-          ['orders','layers','platforms','inventory','statuses','app_config'].forEach(suffix => localStorage.removeItem(r.id + '_' + suffix));
-        });
-        // Restore
-        localStorage.setItem('rounds_meta', JSON.stringify(data.rounds_meta));
-        localStorage.setItem('active_round_id', data.active_round_id || data.rounds_meta[0].id);
-        data.rounds_meta.forEach(r => {
-          ['orders','layers','platforms','inventory','statuses','app_config'].forEach(suffix => {
-            const k = r.id + '_' + suffix;
-            if (data[k] !== undefined) localStorage.setItem(k, JSON.stringify(data[k]));
-          });
-        });
+        applyBackupData(data);
       } else {
         // v1: restore as a single round named "還原的代購"
         const id = 'r_' + Date.now().toString(36);
@@ -2601,6 +2617,164 @@ document.addEventListener('keydown', e => {
 });
 
 /* ─────────────────────────────────────────
+   CLOUD SYNC  (private Gist + PAT, per-device)
+───────────────────────────────────────── */
+const SYNC_FILE = 'buyingagent_data.json';
+const SYNC_DESC = 'BuyingAgent Sync — do not delete';
+let _syncTimer = null, _syncing = false;
+
+function syncPat()    { return localStorage.getItem('sync_pat') || ''; }
+function syncGistId() { return localStorage.getItem('sync_gist_id') || ''; }
+function syncOn()     { return !!(syncPat() && syncGistId()); }
+function ghHead()     { return { 'Authorization': 'Bearer ' + syncPat(), 'Accept': 'application/vnd.github+json' }; }
+
+async function ghUser() {
+  const r = await fetch('https://api.github.com/user', { headers: ghHead() });
+  if (!r.ok) throw new Error('Token 驗證失敗（' + r.status + '），請確認已勾選 gist 權限');
+  return r.json();
+}
+
+// Reuse the marked sync gist if it exists, else create a new private one seeded with local data.
+async function findOrCreateGist() {
+  for (let page = 1; page <= 5; page++) {
+    const r = await fetch('https://api.github.com/gists?per_page=100&page=' + page, { headers: ghHead() });
+    if (!r.ok) throw new Error('讀取 Gist 清單失敗（' + r.status + '）');
+    const list = await r.json();
+    if (!list.length) break;
+    const hit = list.find(g => (g.files && g.files[SYNC_FILE]) || g.description === SYNC_DESC);
+    if (hit) return hit.id;
+  }
+  const body = { description: SYNC_DESC, public: false, files: { [SYNC_FILE]: { content: JSON.stringify(gatherBackupData(), null, 2) } } };
+  const cr = await fetch('https://api.github.com/gists', { method: 'POST', headers: ghHead(), body: JSON.stringify(body) });
+  if (!cr.ok) throw new Error('建立 Gist 失敗（' + cr.status + '）');
+  return (await cr.json()).id;
+}
+
+async function fetchRemote() {
+  const r = await fetch('https://api.github.com/gists/' + syncGistId(), { headers: ghHead() });
+  if (!r.ok) throw new Error('讀取雲端資料失敗（' + r.status + '）');
+  const g = await r.json();
+  const f = g.files && g.files[SYNC_FILE];
+  if (!f) return null;
+  let content = f.content;
+  if (f.truncated && f.raw_url) content = await (await fetch(f.raw_url, { headers: ghHead() })).text();
+  try { return JSON.parse(content); } catch { return null; }
+}
+
+async function syncPull(opts) {
+  opts = opts || {};
+  if (!syncOn()) return;
+  try {
+    const remote = await fetchRemote();
+    if (!remote) { if (!opts.silent) toast('☁️ 雲端尚無資料'); return; }
+    if (remote._exportedAt && remote._exportedAt === localStorage.getItem('sync_base')) {
+      if (!opts.silent) toast('☁️ 已是最新');
+      return;
+    }
+    if (!applyBackupData(remote)) { if (!opts.silent) toast('⚠️ 雲端資料格式不符'); return; }
+    localStorage.setItem('sync_base', remote._exportedAt || '');
+    localStorage.setItem('last_sync_time', new Date().toISOString());
+    toast('☁️ 已從雲端更新，重新載入…');
+    setTimeout(() => location.reload(), 900);
+  } catch (e) {
+    if (!opts.silent) toast('⚠️ ' + (e.message || '拉取失敗'));
+  }
+}
+
+async function syncPush(opts) {
+  opts = opts || {};
+  if (!syncOn() || _syncing) return;
+  _syncing = true;
+  try {
+    // Conflict guard: never silently overwrite a cloud copy that moved past our last sync.
+    if (!opts.force) {
+      const remote = await fetchRemote();
+      const base = localStorage.getItem('sync_base') || '';
+      if (remote && remote._exportedAt && remote._exportedAt !== base) {
+        if (opts.auto) { toast('☁️ 雲端有較新資料，請先「從雲端拉取」'); return; }
+        if (!confirm('雲端有較新的資料，繼續上傳會覆蓋雲端版本。\n\n確定要覆蓋嗎？（建議改按「從雲端拉取」）')) return;
+      }
+    }
+    const data = gatherBackupData();
+    const body = { files: { [SYNC_FILE]: { content: JSON.stringify(data, null, 2) } } };
+    const r = await fetch('https://api.github.com/gists/' + syncGistId(), { method: 'PATCH', headers: ghHead(), body: JSON.stringify(body) });
+    if (!r.ok) throw new Error('上傳失敗（' + r.status + '）');
+    localStorage.setItem('sync_base', data._exportedAt);
+    localStorage.setItem('last_sync_time', new Date().toISOString());
+    renderSyncStatus();
+    if (!opts.auto) toast('☁️ 已上傳至雲端');
+  } catch (e) {
+    toast('⚠️ ' + (e.message || '同步失敗'));
+  } finally {
+    _syncing = false;
+  }
+}
+
+// Debounced auto-push, fired from every data-write helper. Inert until sync is configured.
+function scheduleSyncPush() {
+  if (!syncOn()) return;
+  clearTimeout(_syncTimer);
+  _syncTimer = setTimeout(() => syncPush({ auto: true }), 2500);
+}
+
+async function setupSync() {
+  const pat = prompt('貼上 GitHub Personal Access Token（需勾選 gist 權限）：\n\nToken 只存在本機瀏覽器，不會寫入程式碼或上傳。');
+  if (!pat || !pat.trim()) return;
+  localStorage.setItem('sync_pat', pat.trim());
+  toast('☁️ 驗證中…');
+  try {
+    await ghUser();
+    localStorage.setItem('sync_gist_id', await findOrCreateGist());
+    const remote = await fetchRemote();
+    const remoteEmpty = !remote || !remote.rounds_meta;
+    if (!remoteEmpty && remote._exportedAt !== localStorage.getItem('sync_base')) {
+      if (confirm('雲端已有資料。\n\n「確定」＝用雲端覆蓋這台裝置\n「取消」＝用這台裝置覆蓋雲端')) {
+        await syncPull({ silent: true }); return;
+      }
+      await syncPush({ force: true });
+    } else {
+      await syncPush({ force: true });
+    }
+    renderSyncStatus();
+    toast('☁️ 雲端同步已啟用');
+  } catch (e) {
+    localStorage.removeItem('sync_pat');
+    localStorage.removeItem('sync_gist_id');
+    renderSyncStatus();
+    toast('⚠️ ' + (e.message || '設定失敗'));
+  }
+}
+
+function disableSync() {
+  if (!confirm('停用雲端同步？\n本機資料保留、雲端 Gist 也不會被刪除，只是這台裝置不再自動同步。')) return;
+  localStorage.removeItem('sync_pat');
+  localStorage.removeItem('sync_gist_id');
+  localStorage.removeItem('sync_base');
+  renderSyncStatus();
+  toast('已停用雲端同步');
+}
+
+function renderSyncStatus() {
+  const box = document.getElementById('sync-body');
+  if (!box) return;
+  if (!syncOn()) {
+    box.innerHTML =
+      '<div class="backup-note" style="margin-bottom:12px">・在每台裝置（手機／電腦）貼上同一組 token，即可自動雙向同步<br>・資料存在你 GitHub 帳號下的<b>私密 Gist</b>，只有你看得到<br>・token 只存本機瀏覽器，不會進入公開程式碼</div>' +
+      '<button class="btn btn-primary" onclick="setupSync()">啟用雲端同步</button>';
+    return;
+  }
+  const raw = localStorage.getItem('last_sync_time');
+  const timeStr = raw ? new Date(raw).toLocaleString('zh-TW', { month:'numeric', day:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
+  box.innerHTML =
+    '<div class="backup-note" style="margin-bottom:12px">☁️ 已啟用　｜　上次同步：' + timeStr + '<br>資料變更後會自動上傳，開啟頁面時自動拉取最新。</div>' +
+    '<div class="backup-btn-row">' +
+      '<button class="btn btn-primary" onclick="syncPush({})">立即上傳</button>' +
+      '<label class="backup-import-label" style="cursor:pointer" onclick="syncPull({})">從雲端拉取</label>' +
+    '</div>' +
+    '<div style="text-align:center;margin-top:10px"><button onclick="disableSync()" style="background:none;border:none;color:var(--muted);font-size:.8rem;cursor:pointer;text-decoration:underline">停用同步</button></div>';
+}
+
+/* ─────────────────────────────────────────
    INIT
 ───────────────────────────────────────── */
 load();
@@ -2611,6 +2785,8 @@ renderCurItems();
 renderAll();
 renderRoundSwitcher();
 renderBackupStatus();
+renderSyncStatus();
+if (syncOn()) syncPull({ silent: true });   // auto-pull newest on load
 document.addEventListener('click', () => {
   if (_openSDD) { _openSDD.style.display = 'none'; _openSDD = null; }
 });
