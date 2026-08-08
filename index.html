@@ -2621,7 +2621,8 @@ document.addEventListener('keydown', e => {
 ───────────────────────────────────────── */
 const SYNC_FILE = 'buyingagent_data.json';
 const SYNC_DESC = 'BuyingAgent Sync — do not delete';
-let _syncTimer = null, _syncing = false;
+const SYNC_POLL_MS = 15000;   // background poll interval while the tab is visible
+let _syncTimer = null, _syncing = false, _localDirty = false;
 
 function syncPat()    { return localStorage.getItem('sync_pat') || ''; }
 function syncGistId() { return localStorage.getItem('sync_gist_id') || ''; }
@@ -2661,23 +2662,38 @@ async function fetchRemote() {
   try { return JSON.parse(content); } catch { return null; }
 }
 
+// True while the user is mid-action, so a background pull won't reload under them.
+function isBusyEditing() {
+  if (editingOrder || curItems.length) return true;
+  const ae = document.activeElement;
+  if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return true;
+  return ['backup-modal','global-customers-modal'].some(id => {
+    const m = document.getElementById(id);
+    return m && getComputedStyle(m).display !== 'none';
+  });
+}
+
 async function syncPull(opts) {
   opts = opts || {};
   if (!syncOn()) return;
+  const quiet = opts.silent || opts.background;
   try {
     const remote = await fetchRemote();
-    if (!remote) { if (!opts.silent) toast('☁️ 雲端尚無資料'); return; }
+    if (!remote) { if (!quiet) toast('☁️ 雲端尚無資料'); return; }
     if (remote._exportedAt && remote._exportedAt === localStorage.getItem('sync_base')) {
-      if (!opts.silent) toast('☁️ 已是最新');
+      if (!quiet) toast('☁️ 已是最新');
       return;
     }
-    if (!applyBackupData(remote)) { if (!opts.silent) toast('⚠️ 雲端資料格式不符'); return; }
+    // Newer data on cloud. In background mode, never clobber unsynced local work or
+    // interrupt active editing — skip this round and let a later poll catch it.
+    if (opts.background && (_localDirty || _syncing || isBusyEditing())) return;
+    if (!applyBackupData(remote)) { if (!quiet) toast('⚠️ 雲端資料格式不符'); return; }
     localStorage.setItem('sync_base', remote._exportedAt || '');
     localStorage.setItem('last_sync_time', new Date().toISOString());
     toast('☁️ 已從雲端更新，重新載入…');
-    setTimeout(() => location.reload(), 900);
+    setTimeout(() => location.reload(), opts.background ? 600 : 900);
   } catch (e) {
-    if (!opts.silent) toast('⚠️ ' + (e.message || '拉取失敗'));
+    if (!quiet) toast('⚠️ ' + (e.message || '拉取失敗'));
   }
 }
 
@@ -2701,6 +2717,7 @@ async function syncPush(opts) {
     if (!r.ok) throw new Error('上傳失敗（' + r.status + '）');
     localStorage.setItem('sync_base', data._exportedAt);
     localStorage.setItem('last_sync_time', new Date().toISOString());
+    _localDirty = false;
     renderSyncStatus();
     if (!opts.auto) toast('☁️ 已上傳至雲端');
   } catch (e) {
@@ -2713,6 +2730,7 @@ async function syncPush(opts) {
 // Debounced auto-push, fired from every data-write helper. Inert until sync is configured.
 function scheduleSyncPush() {
   if (!syncOn()) return;
+  _localDirty = true;
   clearTimeout(_syncTimer);
   _syncTimer = setTimeout(() => syncPush({ auto: true }), 2500);
 }
@@ -2786,7 +2804,15 @@ renderAll();
 renderRoundSwitcher();
 renderBackupStatus();
 renderSyncStatus();
-if (syncOn()) syncPull({ silent: true });   // auto-pull newest on load
+if (syncOn()) syncPull({ silent: true });   // pull newest on load
+// Live catch-up: pull the instant you return to this device, plus a light poll while visible.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') syncPull({ background: true });
+});
+window.addEventListener('focus', () => syncPull({ background: true }));
+setInterval(() => {
+  if (document.visibilityState === 'visible') syncPull({ background: true });
+}, SYNC_POLL_MS);
 document.addEventListener('click', () => {
   if (_openSDD) { _openSDD.style.display = 'none'; _openSDD = null; }
 });
