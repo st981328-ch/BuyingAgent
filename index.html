@@ -74,6 +74,10 @@ input[type=number]{width:72px;}
 .btn-del:hover{background:#fde8e8;border-color:rgba(239,68,68,.5);}
 .btn-copy{background:var(--primary);color:#fff;width:100%;padding:10px;margin-top:8px;font-size:.9rem;border-radius:14px;}
 .btn-outline{background:#f5f5f5;border:none;color:var(--text);}
+.inherit-round-btn{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;text-align:left;padding:12px 16px;border:1.5px solid var(--border);border-radius:14px;background:#fff;color:var(--text);font-size:.92rem;font-weight:600;font-family:inherit;cursor:pointer;transition:all .15s;}
+.inherit-round-btn:hover{border-color:var(--accent);background:#fffdf5;}
+.inherit-round-btn.active{border-color:var(--accent);box-shadow:0 0 0 3px rgba(245,200,66,.2);}
+.inherit-round-tag{flex-shrink:0;font-size:.72rem;font-weight:700;color:var(--accent-text);background:var(--accent);padding:2px 8px;border-radius:10px;}
 
 /* ─── Item chips (order entry) ─── */
 .item-list{margin-top:10px;display:flex;flex-direction:column;gap:8px;}
@@ -374,6 +378,21 @@ hr{border:none;border-top:1px solid rgba(0,0,0,.06);margin:16px 0;}
         <div class="card-title">跨輪次客戶清單</div>
         <div id="global-cust-list"></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<div id="inherit-modal" style="display:none;position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.4);backdrop-filter:blur(3px);align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)closeInheritModal()">
+  <div style="background:var(--bg);border-radius:16px;width:min(420px,100%);max-height:85vh;overflow-y:auto;box-shadow:0 12px 48px rgba(0,0,0,.25)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(0,0,0,.07)">
+      <span style="font-weight:800;font-size:1.05rem">沿用設定</span>
+      <button onclick="closeInheritModal()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--muted);line-height:1;padding:4px 8px">×</button>
+    </div>
+    <div style="padding:16px 20px">
+      <div style="font-size:.9rem;color:var(--muted);margin-bottom:6px">新代購「<b id="inherit-new-name" style="color:var(--text)"></b>」</div>
+      <div style="font-size:.92rem;margin-bottom:14px">要沿用哪一輪的設定？<br><span style="color:var(--muted);font-size:.82rem">（複製品項結構、平台、訂單狀態、外觀；不含庫存與訂單）</span></div>
+      <div id="inherit-round-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
+      <button class="btn btn-outline" style="width:100%;padding:11px 0;border-radius:14px" onclick="finalizeNewRound(null)">不沿用，空白開始</button>
     </div>
   </div>
 </div>
@@ -2219,13 +2238,50 @@ function deleteOption(layerId, optIdx, parentVal = null) {
 /* ─────────────────────────────────────────
    ROUND MANAGEMENT
 ───────────────────────────────────────── */
+// Settings copied when a new round inherits from an existing one (never orders/inventory)
+const INHERIT_SUFFIXES = ['layers', 'platforms', 'statuses', 'app_config'];
+let _pendingRoundName = null;
+
 function createRound() {
   const name = prompt('新代購名稱：', `第${ROUNDS_META.length + 1}輪代購`);
   if (!name || !name.trim()) return;
+  _pendingRoundName = name.trim();
+  if (ROUNDS_META.length === 0) { finalizeNewRound(null); return; }
+  openInheritModal();
+}
+
+function openInheritModal() {
+  document.getElementById('inherit-new-name').textContent = _pendingRoundName;
+  document.getElementById('inherit-round-list').innerHTML = ROUNDS_META.map(r =>
+    `<button class="inherit-round-btn${r.id === ACTIVE_ROUND_ID ? ' active' : ''}" onclick="finalizeNewRound('${r.id}')">
+      <span>${escHtml(r.name)}</span>
+      ${r.id === ACTIVE_ROUND_ID ? '<span class="inherit-round-tag">目前</span>' : ''}
+    </button>`).join('');
+  document.getElementById('inherit-modal').style.display = 'flex';
+}
+
+function closeInheritModal() {
+  document.getElementById('inherit-modal').style.display = 'none';
+  _pendingRoundName = null;
+}
+
+function finalizeNewRound(sourceId) {
+  if (!_pendingRoundName) return;
   const id = 'r_' + Date.now().toString(36);
-  ROUNDS_META.push({ id, name: name.trim(), createdAt: new Date().toISOString() });
-  localStorage.setItem('rounds_meta', JSON.stringify(ROUNDS_META)); scheduleSyncPush();
+  ROUNDS_META.push({ id, name: _pendingRoundName, createdAt: new Date().toISOString() });
+  localStorage.setItem('rounds_meta', JSON.stringify(ROUNDS_META));
+  const src = sourceId ? ROUNDS_META.find(r => r.id === sourceId) : null;
+  if (sourceId) {
+    INHERIT_SUFFIXES.forEach(suffix => {
+      const v = localStorage.getItem(sourceId + '_' + suffix);
+      if (v !== null) localStorage.setItem(id + '_' + suffix, v);
+    });
+  }
+  scheduleSyncPush();
+  document.getElementById('inherit-modal').style.display = 'none';
+  _pendingRoundName = null;
   switchRound(id);
+  if (src) toast(`已沿用「${src.name}」的設定`);
 }
 
 function switchRound(id) {
@@ -2667,7 +2723,7 @@ function isBusyEditing() {
   if (editingOrder || curItems.length) return true;
   const ae = document.activeElement;
   if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return true;
-  return ['backup-modal','global-customers-modal'].some(id => {
+  return ['backup-modal','global-customers-modal','inherit-modal'].some(id => {
     const m = document.getElementById(id);
     return m && getComputedStyle(m).display !== 'none';
   });
