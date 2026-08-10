@@ -78,6 +78,15 @@ input[type=number]{width:72px;}
 .inherit-round-btn:hover{border-color:var(--accent);background:#fffdf5;}
 .inherit-round-btn.active{border-color:var(--accent);box-shadow:0 0 0 3px rgba(245,200,66,.2);}
 .inherit-round-tag{flex-shrink:0;font-size:.72rem;font-weight:700;color:var(--accent-text);background:var(--accent);padding:2px 8px;border-radius:10px;}
+.import-cat-row{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1.5px solid var(--border);border-radius:12px;background:#fff;cursor:pointer;margin-bottom:8px;}
+.import-cat-row:hover{border-color:var(--accent);background:#fffdf5;}
+.import-cat-row input{margin-top:2px;width:16px;height:16px;flex-shrink:0;cursor:pointer;}
+.import-cat-name{font-weight:700;font-size:.9rem;}
+.import-cat-hint{font-size:.76rem;color:var(--muted);margin-top:2px;}
+.import-inv-list{max-height:38vh;overflow-y:auto;border:1px solid var(--border);border-radius:12px;padding:4px;background:var(--surface);}
+.import-inv-row{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;cursor:pointer;font-size:.85rem;}
+.import-inv-row:hover{background:#fff;}
+.import-inv-row input{width:15px;height:15px;flex-shrink:0;cursor:pointer;}
 
 /* ─── Item chips (order entry) ─── */
 .item-list{margin-top:10px;display:flex;flex-direction:column;gap:8px;}
@@ -397,6 +406,72 @@ hr{border:none;border-top:1px solid rgba(0,0,0,.06);margin:16px 0;}
   </div>
 </div>
 
+<div id="import-round-modal" style="display:none;position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.4);backdrop-filter:blur(3px);align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)closeImportModal()">
+  <div style="background:var(--bg);border-radius:16px;width:min(500px,100%);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 12px 48px rgba(0,0,0,.25)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(0,0,0,.07);flex-shrink:0">
+      <span style="font-weight:800;font-size:1.05rem">從其他輪匯入</span>
+      <button onclick="closeImportModal()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--muted);line-height:1;padding:4px 8px">×</button>
+    </div>
+    <div style="padding:16px 20px;overflow-y:auto">
+      <div class="form-group" style="margin-bottom:16px">
+        <label style="font-size:.82rem;font-weight:600;color:var(--muted)">來源代購輪</label>
+        <select id="import-src-round" onchange="onImportSrcChange()" style="width:100%"></select>
+      </div>
+
+      <div style="font-size:.82rem;font-weight:700;color:var(--muted);margin-bottom:8px">要匯入的資料（勾選；皆採只補缺不覆蓋）</div>
+
+      <label class="import-cat-row">
+        <input type="checkbox" id="import-cat-inventory" checked onchange="renderImportInvList()">
+        <div style="flex:1">
+          <div class="import-cat-name">庫存項目（售價／成本／庫存數量）</div>
+          <div class="import-cat-hint" id="import-hint-inventory"></div>
+        </div>
+      </label>
+      <div id="import-inv-block" style="margin:-2px 0 10px 4px">
+        <div style="display:flex;align-items:center;gap:8px;margin:6px 0">
+          <span id="import-inv-count" style="font-size:.78rem;color:var(--muted);flex:1"></span>
+          <button class="btn btn-outline" style="padding:3px 10px;font-size:.76rem" onclick="toggleAllImportInv(true)">全選</button>
+          <button class="btn btn-outline" style="padding:3px 10px;font-size:.76rem" onclick="toggleAllImportInv(false)">全不選</button>
+        </div>
+        <div class="import-inv-list" id="import-inv-list"></div>
+      </div>
+
+      <label class="import-cat-row">
+        <input type="checkbox" id="import-cat-layers">
+        <div style="flex:1">
+          <div class="import-cat-name">品項層級與選項清單</div>
+          <div class="import-cat-hint" id="import-hint-layers"></div>
+        </div>
+      </label>
+      <label class="import-cat-row">
+        <input type="checkbox" id="import-cat-platforms">
+        <div style="flex:1">
+          <div class="import-cat-name">買家平台清單</div>
+          <div class="import-cat-hint" id="import-hint-platforms"></div>
+        </div>
+      </label>
+      <label class="import-cat-row">
+        <input type="checkbox" id="import-cat-statuses">
+        <div style="flex:1">
+          <div class="import-cat-name">訂單狀態設定</div>
+          <div class="import-cat-hint" id="import-hint-statuses"></div>
+        </div>
+      </label>
+      <label class="import-cat-row">
+        <input type="checkbox" id="import-cat-appearance">
+        <div style="flex:1">
+          <div class="import-cat-name">外觀（標題／主題色）</div>
+          <div class="import-cat-hint" id="import-hint-appearance"></div>
+        </div>
+      </label>
+    </div>
+    <div style="display:flex;gap:10px;padding:14px 20px;border-top:1px solid rgba(0,0,0,.07);flex-shrink:0">
+      <button class="btn btn-outline" style="flex:1" onclick="closeImportModal()">取消</button>
+      <button class="btn btn-primary" style="flex:2" onclick="doImportFromRound()">匯入到目前這輪</button>
+    </div>
+  </div>
+</div>
+
 <div class="round-switcher" id="round-switcher"></div>
 
 <div class="tabs">
@@ -555,6 +630,7 @@ hr{border:none;border-top:1px solid rgba(0,0,0,.06);margin:16px 0;}
         <button class="settings-nav-btn active" onclick="switchSettingsTab('appearance',this)">外觀</button>
         <button class="settings-nav-btn" onclick="switchSettingsTab('order-opts',this)">訂單選項</button>
         <button class="settings-nav-btn" onclick="switchSettingsTab('products',this)">品項層級</button>
+        <button class="settings-nav-btn" onclick="switchSettingsTab('import',this)">跨輪匯入</button>
         <button class="settings-nav-btn" style="color:var(--danger)" onclick="switchSettingsTab('danger',this)">重置</button>
       </nav>
 
@@ -626,6 +702,18 @@ hr{border:none;border-top:1px solid rgba(0,0,0,.06);margin:16px 0;}
                 <button class="btn btn-primary" onclick="addLayer()">＋ 新增層級</button>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- 跨輪匯入 -->
+        <div id="settings-import" class="settings-subpanel">
+          <div class="card">
+            <div class="card-title">從其他輪匯入資料</div>
+            <div style="font-size:.83rem;color:var(--muted);margin-bottom:14px;line-height:1.6">
+              把其他輪代購的庫存項目、售價成本、品項選項、平台與訂單狀態，選擇性帶進「目前這輪」。<br>
+              匯入採「只補缺的，不覆蓋現有資料」；庫存項目可逐項勾選，並連同售價／成本／庫存數量一起帶入。
+            </div>
+            <button class="btn btn-primary" onclick="openImportModal()">＋ 開啟匯入</button>
           </div>
         </div>
       </div>
@@ -2284,6 +2372,222 @@ function finalizeNewRound(sourceId) {
   if (src) toast(`已沿用「${src.name}」的設定`);
 }
 
+/* ─────────────────────────────────────────
+   CROSS-ROUND IMPORT — pull data from another round into the current one.
+   Policy: only fill what's missing, never overwrite existing data.
+───────────────────────────────────────── */
+let _importSrcId = '';
+
+// Read a raw round key from localStorage without touching the active round's state.
+function _roundData(id, suffix, fallback) {
+  try { const v = localStorage.getItem(id + '_' + suffix); return v == null ? fallback : JSON.parse(v); }
+  catch { return fallback; }
+}
+
+// Ensure the current LAYERS can represent `value` at `layerIdx` under ancestor `pathKey`
+// (adds the option if missing). Mirrors flat vs. cascade (perParent) modes.
+function ensureLayerOption(layerIdx, pathKey, value) {
+  const layer = LAYERS[layerIdx];
+  if (!layer || value === '' || value == null) return;
+  if (layerIdx === 0) {
+    layer.options = layer.options || [];
+    if (!layer.options.includes(value)) layer.options.push(value);
+    return;
+  }
+  const cascade = layer.perParent && Object.keys(layer.perParent).length > 0;
+  if (cascade) {
+    if (!layer.perParent[pathKey]) layer.perParent[pathKey] = [];
+    if (!layer.perParent[pathKey].includes(value)) layer.perParent[pathKey].push(value);
+  } else {
+    layer.options = layer.options || [];
+    if (!layer.options.includes(value)) layer.options.push(value);
+  }
+}
+
+// Auto-add every layer option an inventory key relies on, so it renders as valid (not stale).
+function ensureKeyRepresentable(key) {
+  const segs = key.split('|');
+  for (let i = 0; i < segs.length; i++) {
+    if (!LAYERS[i]) break;   // current round has fewer layers — leave the rest; key is still stored
+    ensureLayerOption(i, segs.slice(0, i).join('|'), segs[i]);
+  }
+}
+
+// Additively merge source layer definitions into current LAYERS. Returns options added.
+function mergeLayersFrom(srcLayers) {
+  let added = 0;
+  srcLayers.forEach(sl => {
+    let cl = LAYERS.find(l => l.id === sl.id);
+    if (!cl) {
+      cl = JSON.parse(JSON.stringify(sl));
+      LAYERS.push(cl);
+      added += (cl.options || []).length + Object.values(cl.perParent || {}).reduce((s, a) => s + a.length, 0);
+      return;
+    }
+    (sl.options || []).forEach(o => { cl.options = cl.options || []; if (!cl.options.includes(o)) { cl.options.push(o); added++; } });
+    Object.entries(sl.perParent || {}).forEach(([pk, arr]) => {
+      cl.perParent = cl.perParent || {};
+      cl.perParent[pk] = cl.perParent[pk] || [];
+      arr.forEach(o => { if (!cl.perParent[pk].includes(o)) { cl.perParent[pk].push(o); added++; } });
+    });
+  });
+  return added;
+}
+
+function openImportModal() {
+  const others = ROUNDS_META.filter(r => r.id !== ACTIVE_ROUND_ID);
+  if (!others.length) { toast('目前只有一輪代購，沒有其他輪可匯入'); return; }
+  const sel = document.getElementById('import-src-round');
+  sel.innerHTML = others.map(r => `<option value="${escHtml(r.id)}">${escHtml(r.name)}</option>`).join('');
+  _importSrcId = others[0].id;
+  sel.value = _importSrcId;
+  // reset category checkboxes (inventory on by default)
+  document.getElementById('import-cat-inventory').checked = true;
+  ['layers','platforms','statuses','appearance'].forEach(c => { document.getElementById('import-cat-' + c).checked = false; });
+  onImportSrcChange();
+  document.getElementById('import-round-modal').style.display = 'flex';
+}
+function closeImportModal() {
+  document.getElementById('import-round-modal').style.display = 'none';
+}
+
+function onImportSrcChange() {
+  _importSrcId = document.getElementById('import-src-round').value;
+  updateImportHints();
+  renderImportInvList();
+}
+
+function _setHint(id, total, neu, unit) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = total ? `來源共 ${total} ${unit}，可新增 ${neu} 項` : `來源無${unit}`;
+}
+function updateImportHints() {
+  if (!_importSrcId) return;
+  const srcP = _roundData(_importSrcId, 'platforms', []) || [];
+  _setHint('import-hint-platforms', srcP.length, srcP.filter(p => !PLATFORMS.includes(p)).length, '平台');
+  const srcS = _roundData(_importSrcId, 'statuses', []) || [];
+  _setHint('import-hint-statuses', srcS.length, srcS.filter(s => !STATUSES.find(x => x.id === s.id)).length, '狀態');
+  const srcL = _roundData(_importSrcId, 'layers', null) || [];
+  let totalOpt = 0, newOpt = 0;
+  srcL.forEach(sl => {
+    const cl = LAYERS.find(l => l.id === sl.id);
+    (sl.options || []).forEach(o => { totalOpt++; if (!cl || !(cl.options || []).includes(o)) newOpt++; });
+    Object.entries(sl.perParent || {}).forEach(([pk, arr]) => arr.forEach(o => { totalOpt++; if (!((cl && cl.perParent && cl.perParent[pk]) || []).includes(o)) newOpt++; }));
+  });
+  _setHint('import-hint-layers', totalOpt, newOpt, '選項');
+  const srcInv = _roundData(_importSrcId, 'inventory', {}) || {};
+  const invKeys = Object.keys(srcInv);
+  _setHint('import-hint-inventory', invKeys.length, invKeys.filter(k => !Object.prototype.hasOwnProperty.call(INVENTORY, k)).length, '項目');
+  const srcC = _roundData(_importSrcId, 'app_config', null);
+  const ah = document.getElementById('import-hint-appearance');
+  if (ah) ah.textContent = srcC && srcC.title ? `來源標題：${srcC.title}` : '沿用來源外觀設定';
+}
+
+function renderImportInvList() {
+  const block = document.getElementById('import-inv-block');
+  const on = document.getElementById('import-cat-inventory').checked;
+  block.style.display = on ? 'block' : 'none';
+  if (!on || !_importSrcId) return;
+  const srcInv = _roundData(_importSrcId, 'inventory', {}) || {};
+  const keys = Object.keys(srcInv).sort((a, b) => a.localeCompare(b));
+  const listEl = document.getElementById('import-inv-list');
+  const countEl = document.getElementById('import-inv-count');
+  if (!keys.length) {
+    listEl.innerHTML = '<div style="color:var(--muted);font-size:.83rem;padding:10px;text-align:center">來源輪沒有庫存項目</div>';
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+  let newCount = 0;
+  listEl.innerHTML = keys.map(k => {
+    const exists = Object.prototype.hasOwnProperty.call(INVENTORY, k);
+    if (!exists) newCount++;
+    const inv = srcInv[k] || {};
+    return `<label class="import-inv-row" style="opacity:${exists ? '.5' : '1'}">
+      <input type="checkbox" class="import-inv-cb" value="${escHtml(k)}" ${exists ? 'disabled' : 'checked'}>
+      <span style="flex:1">${escHtml(k.replace(/\|/g, ' · '))}</span>
+      <span style="color:var(--muted);font-size:.75rem;white-space:nowrap">售${inv.price || 0}／本${inv.cost || 0}／存${inv.stock || 0}</span>
+      ${exists ? '<span style="font-size:.7rem;color:var(--muted);white-space:nowrap">已存在</span>' : ''}
+    </label>`;
+  }).join('');
+  if (countEl) countEl.textContent = `可匯入 ${newCount} 項（已存在的自動略過）`;
+}
+
+function toggleAllImportInv(check) {
+  document.querySelectorAll('.import-inv-cb:not(:disabled)').forEach(cb => cb.checked = check);
+}
+
+function doImportFromRound() {
+  if (!_importSrcId) { toast('請選擇來源代購輪'); return; }
+  const src = ROUNDS_META.find(r => r.id === _importSrcId);
+  const doInv    = document.getElementById('import-cat-inventory').checked;
+  const doLayers = document.getElementById('import-cat-layers').checked;
+  const doPlat   = document.getElementById('import-cat-platforms').checked;
+  const doStat   = document.getElementById('import-cat-statuses').checked;
+  const doAppear = document.getElementById('import-cat-appearance').checked;
+  if (!doInv && !doLayers && !doPlat && !doStat && !doAppear) { toast('請至少勾選一項要匯入的資料'); return; }
+
+  const summary = [];
+  let layersTouched = false;
+
+  // 1) Full layer merge first, so inventory keys have their options ready.
+  if (doLayers) {
+    const srcLayers = _roundData(_importSrcId, 'layers', null);
+    if (srcLayers) { const n = mergeLayersFrom(srcLayers); if (n) { layersTouched = true; summary.push(`層級選項 +${n}`); } }
+  }
+
+  // 2) Platforms — append missing.
+  if (doPlat) {
+    const srcP = _roundData(_importSrcId, 'platforms', []) || [];
+    let n = 0;
+    srcP.forEach(p => { if (!PLATFORMS.includes(p)) { PLATFORMS.push(p); n++; } });
+    if (n) { savePlatforms(); summary.push(`平台 +${n}`); }
+  }
+
+  // 3) Statuses — append missing by id.
+  if (doStat) {
+    const srcS = _roundData(_importSrcId, 'statuses', []) || [];
+    let n = 0;
+    srcS.forEach(s => { if (!STATUSES.find(x => x.id === s.id)) { STATUSES.push({ ...s }); n++; } });
+    if (n) { saveStatuses(); summary.push(`訂單狀態 +${n}`); }
+  }
+
+  // 4) Inventory — selected keys only, fill missing, bring price/cost/stock.
+  if (doInv) {
+    const srcInv = _roundData(_importSrcId, 'inventory', {}) || {};
+    const checked = [...document.querySelectorAll('.import-inv-cb:checked')].map(cb => cb.value);
+    let n = 0;
+    checked.forEach(k => {
+      if (Object.prototype.hasOwnProperty.call(INVENTORY, k)) return; // only fill missing
+      ensureKeyRepresentable(k);   // auto-add the layer options this key relies on
+      layersTouched = true;
+      const s = srcInv[k] || {};
+      INVENTORY[k] = { price: s.price || 0, cost: s.cost || 0, stock: s.stock || 0 };
+      n++;
+    });
+    if (n) { saveInventory(); summary.push(`庫存項目 +${n}`); }
+  }
+
+  if (layersTouched) saveLayers();
+
+  // 5) Appearance — whole replace of title/color.
+  if (doAppear) {
+    const srcC = _roundData(_importSrcId, 'app_config', null);
+    if (srcC) {
+      if (srcC.title) APP_CONFIG.title = srcC.title;
+      if (srcC.color) APP_CONFIG.color = srcC.color;
+      saveAppConfig(); applyAppConfig();
+      summary.push('外觀已更新');
+    }
+  }
+
+  renderLayerSelects();
+  renderInvLayerSelects();
+  renderPlatformSelect();
+  renderAll();
+  closeImportModal();
+  toast(summary.length ? `✅ 已從「${src?.name}」匯入：${summary.join('、')}` : 'ℹ️ 沒有需要匯入的新資料（皆已存在）');
+}
+
 function switchRound(id) {
   if (!ROUNDS_META.find(r => r.id === id)) return;
   ACTIVE_ROUND_ID = id;
@@ -2723,7 +3027,7 @@ function isBusyEditing() {
   if (editingOrder || curItems.length) return true;
   const ae = document.activeElement;
   if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return true;
-  return ['backup-modal','global-customers-modal','inherit-modal'].some(id => {
+  return ['backup-modal','global-customers-modal','inherit-modal','import-round-modal'].some(id => {
     const m = document.getElementById(id);
     return m && getComputedStyle(m).display !== 'none';
   });
