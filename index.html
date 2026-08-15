@@ -255,6 +255,9 @@ hr{border:none;border-top:1px solid rgba(0,0,0,.06);margin:16px 0;}
 .status-color-dot:hover{transform:scale(1.2);box-shadow:0 2px 8px rgba(0,0,0,.2);}
 .status-edit-row{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid rgba(0,0,0,.05);}
 .status-edit-row:last-child{border-bottom:none;}
+.status-default-btn{font-size:.72rem;font-weight:600;font-family:inherit;border:1.5px solid var(--border);background:#fff;color:var(--muted);border-radius:20px;padding:3px 10px;cursor:pointer;white-space:nowrap;flex-shrink:0;transition:all .12s;}
+.status-default-btn:hover{border-color:var(--accent);color:var(--text);}
+.status-default-btn.is-default{background:var(--accent);border-color:var(--accent);color:var(--accent-text);cursor:default;}
 
 /* ─── Order financials ─── */
 .order-financials{display:flex;gap:12px;font-size:.75rem;margin-top:5px;flex-wrap:wrap;}
@@ -838,6 +841,10 @@ function getStatusObj(id) {
   return STATUSES.find(s => s.id === id) || { id, label: id, colorIdx: 5 };
 }
 function getStatusCycle() { return STATUSES.map(s => s.id); }
+function getDefaultStatusId() {
+  const d = STATUSES.find(s => s.isDefault);
+  return d ? d.id : (STATUSES[0]?.id || 'pending');
+}
 function statusBadgeStyle(colorIdx) {
   const c = STATUS_COLORS[colorIdx] ?? STATUS_COLORS[5];
   return `background:${c.bg};color:${c.fg}`;
@@ -1314,7 +1321,7 @@ function saveOrder() {
     buyerName,
     platform,
     items: [...curItems],
-    status: 'pending',
+    status: getDefaultStatusId(),
     createdAt: new Date().toISOString()
   });
   save();
@@ -2080,16 +2087,21 @@ function renderStatuses() {
   if (ci) ci.value = APP_CONFIG.color;
   const el = document.getElementById('status-settings');
   if (!el) return;
+  const defId = getDefaultStatusId();
   el.innerHTML = `
+    <div style="font-size:.74rem;color:var(--muted);margin-bottom:6px">★ = 新訂單登記時的預設狀態（點灰色☆可切換）</div>
     <div>
       ${STATUSES.map((s, i) => {
         const c = STATUS_COLORS[s.colorIdx] ?? STATUS_COLORS[0];
+        const isDef = s.id === defId;
         return `<div class="status-edit-row">
           <span class="status-color-dot" style="background:${c.bg};border-color:${c.fg}"
             onclick="cycleStatusColor(${i})" title="點擊換色"></span>
           <input value="${escHtml(s.label)}" style="flex:1;max-width:130px;font-size:.88rem;padding:3px 8px;border-radius:5px;border:1.5px solid var(--border);outline:none"
             onfocus="this.style.borderColor='var(--primary)'" onblur="this.style.borderColor='var(--border)';renameStatus(${i},this.value)"
             onchange="renameStatus(${i},this.value)">
+          <button class="status-default-btn ${isDef?'is-default':''}" onclick="setDefaultStatus(${i})"
+            title="設為新訂單登記的預設狀態">${isDef?'★ 預設':'☆'}</button>
           <div class="layer-move-btns">
             ${i > 0 ? `<button onclick="moveStatus(${i},-1)">↑</button>` : '<button disabled style="opacity:.3">↑</button>'}
             ${i < STATUSES.length-1 ? `<button onclick="moveStatus(${i},1)">↓</button>` : '<button disabled style="opacity:.3">↓</button>'}
@@ -2138,6 +2150,13 @@ function moveStatus(idx, dir) {
   [STATUSES[idx], STATUSES[ni]] = [STATUSES[ni], STATUSES[idx]];
   saveStatuses();
   renderSettings();
+}
+function setDefaultStatus(idx) {
+  if (!STATUSES[idx] || STATUSES[idx].isDefault) return;
+  STATUSES.forEach((s, i) => { s.isDefault = (i === idx); });
+  saveStatuses();
+  renderStatuses();
+  toast(`✅ 新訂單預設狀態設為「${STATUSES[idx].label}」`);
 }
 function cycleStatusColor(idx) {
   if (!STATUSES[idx]) return;
