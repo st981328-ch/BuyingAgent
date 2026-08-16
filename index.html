@@ -203,7 +203,7 @@ input[type=number]{width:72px;}
 .opt-move{background:none;border:none;cursor:pointer;color:#ccc;padding:0 1px;line-height:1;font-size:.7rem;font-family:inherit;transition:color .12s;}
 .opt-move:hover{color:var(--primary);}
 .opt-move:disabled{opacity:.2;cursor:default;}
-.inv-sort-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;}
+.inv-sort-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;}
 .inv-sort-row label{font-size:.76rem;font-weight:600;color:var(--muted);}
 .inv-sort-row select{width:auto;min-width:140px;}
 .layer-add-row{display:flex;gap:8px;}
@@ -421,7 +421,7 @@ hr{border:none;border-top:1px solid rgba(0,0,0,.06);margin:16px 0;}
         <select id="import-src-round" onchange="onImportSrcChange()" style="width:100%"></select>
       </div>
 
-      <div style="font-size:.82rem;font-weight:700;color:var(--muted);margin-bottom:8px">要匯入的資料（勾選；皆採只補缺不覆蓋）</div>
+      <div style="font-size:.82rem;font-weight:700;color:var(--muted);margin-bottom:8px">要匯入的資料（勾選；除庫存外皆只補缺不覆蓋）</div>
 
       <label class="import-cat-row">
         <input type="checkbox" id="import-cat-inventory" checked onchange="renderImportInvList()">
@@ -431,6 +431,12 @@ hr{border:none;border-top:1px solid rgba(0,0,0,.06);margin:16px 0;}
         </div>
       </label>
       <div id="import-inv-block" style="margin:-2px 0 10px 4px">
+        <div style="display:flex;align-items:center;gap:12px;margin:6px 0;font-size:.78rem;flex-wrap:wrap">
+          <span style="color:var(--muted)">複製欄位</span>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="import-inv-field" id="import-invf-price" checked>售價</label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="import-inv-field" id="import-invf-cost" checked>成本</label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" class="import-inv-field" id="import-invf-stock" checked>庫存</label>
+        </div>
         <div style="display:flex;align-items:center;gap:8px;margin:6px 0">
           <span id="import-inv-count" style="font-size:.78rem;color:var(--muted);flex:1"></span>
           <button class="btn btn-outline" style="padding:3px 10px;font-size:.76rem" onclick="toggleAllImportInv(true)">全選</button>
@@ -607,6 +613,7 @@ hr{border:none;border-top:1px solid rgba(0,0,0,.06);margin:16px 0;}
           <option value="name">依名稱排列</option>
         </select>
         <button class="btn btn-outline" style="margin-left:auto;font-size:.8rem;padding:6px 14px" onclick="batchImportFromOrders()">從訂單批次加入</button>
+        <button class="btn btn-outline" style="font-size:.8rem;padding:6px 14px" onclick="openImportModal()">從其他輪複製</button>
       </div>
       <div class="summary-wrap" id="inv-table-wrap"><table class="inv-table" id="inv-table">
         <thead><tr><th>品項</th><th>售價</th><th>成本</th><th>利潤</th><th>庫存</th><th>已售</th><th>剩餘</th><th></th></tr></thead>
@@ -2516,19 +2523,19 @@ function renderImportInvList() {
     if (countEl) countEl.textContent = '';
     return;
   }
-  let newCount = 0;
+  let newCount = 0, existCount = 0;
   listEl.innerHTML = keys.map(k => {
     const exists = Object.prototype.hasOwnProperty.call(INVENTORY, k);
-    if (!exists) newCount++;
+    if (exists) existCount++; else newCount++;
     const inv = srcInv[k] || {};
-    return `<label class="import-inv-row" style="opacity:${exists ? '.5' : '1'}">
-      <input type="checkbox" class="import-inv-cb" value="${escHtml(k)}" ${exists ? 'disabled' : 'checked'}>
+    return `<label class="import-inv-row">
+      <input type="checkbox" class="import-inv-cb" value="${escHtml(k)}" ${exists ? '' : 'checked'}>
       <span style="flex:1">${escHtml(k.replace(/\|/g, ' · '))}</span>
       <span style="color:var(--muted);font-size:.75rem;white-space:nowrap">售${inv.price || 0}／本${inv.cost || 0}／存${inv.stock || 0}</span>
-      ${exists ? '<span style="font-size:.7rem;color:var(--muted);white-space:nowrap">已存在</span>' : ''}
+      ${exists ? '<span style="font-size:.7rem;color:var(--warning);white-space:nowrap">已存在·覆蓋</span>' : ''}
     </label>`;
   }).join('');
-  if (countEl) countEl.textContent = `可匯入 ${newCount} 項（已存在的自動略過）`;
+  if (countEl) countEl.textContent = `新增 ${newCount} 項、可覆蓋 ${existCount} 項（勾選才生效）`;
 }
 
 function toggleAllImportInv(check) {
@@ -2544,6 +2551,15 @@ function doImportFromRound() {
   const doStat   = document.getElementById('import-cat-statuses').checked;
   const doAppear = document.getElementById('import-cat-appearance').checked;
   if (!doInv && !doLayers && !doPlat && !doStat && !doAppear) { toast('請至少勾選一項要匯入的資料'); return; }
+
+  // Inventory field selection (validate early so we never apply a partial import).
+  const invFP = document.getElementById('import-invf-price').checked;
+  const invFC = document.getElementById('import-invf-cost').checked;
+  const invFS = document.getElementById('import-invf-stock').checked;
+  if (doInv) {
+    const anyItem = document.querySelectorAll('.import-inv-cb:checked').length > 0;
+    if (anyItem && !invFP && !invFC && !invFS) { toast('請至少勾選一個要複製的欄位（售價／成本／庫存）'); return; }
+  }
 
   const summary = [];
   let layersTouched = false;
@@ -2570,20 +2586,37 @@ function doImportFromRound() {
     if (n) { saveStatuses(); summary.push(`訂單狀態 +${n}`); }
   }
 
-  // 4) Inventory — selected keys only, fill missing, bring price/cost/stock.
+  // 4) Inventory — selected keys, chosen fields; new items created, existing overwritten.
   if (doInv) {
     const srcInv = _roundData(_importSrcId, 'inventory', {}) || {};
     const checked = [...document.querySelectorAll('.import-inv-cb:checked')].map(cb => cb.value);
-    let n = 0;
+    let nNew = 0, nUpd = 0;
     checked.forEach(k => {
-      if (Object.prototype.hasOwnProperty.call(INVENTORY, k)) return; // only fill missing
-      ensureKeyRepresentable(k);   // auto-add the layer options this key relies on
-      layersTouched = true;
       const s = srcInv[k] || {};
-      INVENTORY[k] = { price: s.price || 0, cost: s.cost || 0, stock: s.stock || 0 };
-      n++;
+      if (Object.prototype.hasOwnProperty.call(INVENTORY, k)) {
+        const cur = INVENTORY[k];               // existing: overwrite only chosen fields
+        if (invFP) cur.price = s.price || 0;
+        if (invFC) cur.cost  = s.cost  || 0;
+        if (invFS) cur.stock = s.stock || 0;
+        nUpd++;
+      } else {
+        ensureKeyRepresentable(k);              // auto-add the layer options this key relies on
+        layersTouched = true;
+        INVENTORY[k] = {
+          price: invFP ? (s.price || 0) : 0,
+          cost:  invFC ? (s.cost  || 0) : 0,
+          stock: invFS ? (s.stock || 0) : 0
+        };
+        nNew++;
+      }
     });
-    if (n) { saveInventory(); summary.push(`庫存項目 +${n}`); }
+    if (nNew || nUpd) {
+      saveInventory();
+      const parts = [];
+      if (nNew) parts.push(`新增 ${nNew}`);
+      if (nUpd) parts.push(`覆蓋 ${nUpd}`);
+      summary.push(`庫存項目 ${parts.join('／')}`);
+    }
   }
 
   if (layersTouched) saveLayers();
