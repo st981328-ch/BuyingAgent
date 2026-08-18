@@ -118,8 +118,10 @@ input[type=number]{width:72px;}
 .order-item-chip{display:inline-flex;align-items:center;gap:3px;background:#f5f5f5;border:none;border-radius:20px;padding:3px 10px;font-size:.79rem;color:var(--text);white-space:nowrap;}
 .order-item-chip .chip-qty{font-weight:700;color:var(--primary);margin-left:2px;}
 .order-item-chip .chip-note{color:var(--muted);font-size:.74rem;}
-.order-item-chip.chip-warn{background:#fde8e8;text-decoration:line-through;color:var(--danger);}
 .order-item-chip.chip-cancelled{background:#f0f0f0;color:#bbb;text-decoration:line-through;font-style:italic;}
+.order-item-chip.chip-shortage{background:#fde8e8;color:var(--danger);text-decoration:line-through;cursor:pointer;}
+.order-item-chip.chip-shortage .chip-qty{color:var(--danger);}
+.order-item-chip.chip-shortage:hover{filter:brightness(.96);}
 .chip-action-btn{background:none;border:none;cursor:pointer;font-size:.8rem;color:inherit;opacity:.55;padding:0 0 0 4px;line-height:1;font-family:inherit;flex-shrink:0;}
 .chip-action-btn:hover{opacity:1;}
 .order-item-chip.chip-alloc{background:#d5e8d4;color:#1a5c1a;cursor:pointer;}
@@ -969,12 +971,39 @@ function inventoryKey(item) {
   }
   return [item.product, item.color].filter(Boolean).join('|');
 }
-function calcOrderFinancials(order) {
+// Allocate each inventory key's stock across orders (FIFO by time) →
+// Map: orderId+'|'+itemId → units that fall within available stock.
+// Profit counts only the stock-backed quantity (mirrors renderInvSummary).
+function stockFulfillment() {
+  const byKey = {};
+  orders.forEach(o => o.items.forEach(i => {
+    if (i.cancelled || i.quantity <= 0) return;
+    const k = inventoryKey(i);
+    if (!byKey[k]) byKey[k] = [];
+    byKey[k].push({ ref: o.id + '|' + i.id, qty: i.quantity, at: i.allocatedAt || o.createdAt });
+  }));
+  const out = {};
+  Object.entries(byKey).forEach(([k, entries]) => {
+    const inv = INVENTORY[k];
+    const stock = inv ? (inv.stock == null ? Infinity : inv.stock) : 0;
+    entries.sort((a, b) => new Date(a.at) - new Date(b.at));
+    let cum = 0;
+    entries.forEach(e => {
+      out[e.ref] = Math.max(0, Math.min(e.qty, stock - cum));
+      cum += e.qty;
+    });
+  });
+  return out;
+}
+function calcOrderFinancials(order, fulfillment) {
+  const f = fulfillment || stockFulfillment();
   let revenue = 0, cost = 0;
   order.items.forEach(i => {
     if (i.cancelled || i.quantity === 0) return;
     const inv = INVENTORY[inventoryKey(i)];
-    if (inv) { revenue += (inv.price||0)*i.quantity; cost += (inv.cost||0)*i.quantity; }
+    if (!inv) return;
+    const q = f[order.id + '|' + i.id] || 0;
+    revenue += (inv.price||0)*q; cost += (inv.cost||0)*q;
   });
   return { revenue, cost, profit: revenue - cost };
 }
@@ -1003,62 +1032,33 @@ function calcStockIssues() {
   });
   return issues;
 }
-function cancelItem(orderId, itemId) {
-  const order = orders.find(o => o.id === orderId);
-  if (!order) return;
-  const item = order.items.find(i => i.id === itemId);
-  if (!item) return;
-  item.cancelled = true;
-  item.allocated = false;
-  item.allocatedAt = null;
-  save();
-  renderOrders();
-  renderInvSummary();
-  renderStats();
-  renderSummaryTable();
+// Three item stages. Clicking a chip advances it:
+// registered → allocated → shortage → registered.
+// registered/allocated count toward profit (capped at stock); shortage is
+// excluded from both profit and the shipping (已備貨) count.
+function itemState(item) {
+  if (item.cancelled) return 'shortage';
+  if (item.allocated) return 'allocated';
+  return 'registered';
 }
-
-function restoreItem(orderId, itemId) {
+function cycleItemState(orderId, itemId) {
   const order = orders.find(o => o.id === orderId);
   if (!order) return;
   const item = order.items.find(i => i.id === itemId);
   if (!item) return;
-  item.cancelled = false;
-  save();
-  renderOrders();
-  renderInvSummary();
-  renderStats();
-  renderSummaryTable();
-}
-
-function toggleAllocated(orderId, itemId, chipEl) {
-  const order = orders.find(o => o.id === orderId);
-  if (!order) return;
-  const item = order.items.find(i => i.id === itemId);
-  if (!item) return;
-  item.allocated = !item.allocated;
-  item.allocatedAt = item.allocated ? new Date().toISOString() : null;
-
-  // Instant visual feedback on the chip itself
-  if (chipEl) {
-    const k = inventoryKey(item);
-    chipEl.classList.remove('chip-alloc','chip-unalloc','chip-warn');
-    const iconEl = chipEl.querySelector('.alloc-icon');
-    if (item.allocated) {
-      chipEl.classList.add('chip-alloc');
-      if (iconEl) iconEl.textContent = '✓';
-      chipEl.title = '取消備貨';
-    } else {
-      chipEl.classList.add('chip-unalloc');
-      if (iconEl) iconEl.textContent = '○';
-      chipEl.title = '標記已備貨';
-    }
+  const next = { registered: 'allocated', allocated: 'shortage', shortage: 'registered' }[itemState(item)];
+  if (next === 'allocated') {
+    item.allocated = true;  item.cancelled = false; item.allocatedAt = new Date().toISOString();
+  } else if (next === 'shortage') {
+    item.allocated = false; item.cancelled = true;  item.allocatedAt = null;
+  } else {
+    item.allocated = false; item.cancelled = false; item.allocatedAt = null;
   }
-
   save();
-  // Full re-render to update badges and stock calculations
   renderOrders();
   renderInvSummary();
+  renderStats();
+  renderSummaryTable();
 }
 
 /* ─────────────────────────────────────────
@@ -1380,13 +1380,13 @@ function renderOrders() {
   }
 
   const stockIssues = calcStockIssues();
+  const fulfillment = stockFulfillment();
   el.innerHTML = sortedOrders(filtered).map(order => {
     if (editingId === order.id) return renderEditForm(order);
 
     const s        = getStatusObj(order.status);
     const totalQty = order.items.reduce((sum,i)=>sum+i.quantity,0);
     const hasWarn  = stockIssues.has(order.id);
-    const warnKeys = hasWarn ? stockIssues.get(order.id) : new Set();
 
     const activeItems = order.items.filter(i => !i.cancelled && i.quantity > 0);
     const allocTotal = activeItems.length;
@@ -1396,35 +1396,27 @@ function renderOrders() {
     const itemText = order.items.map(i => {
       const label = itemLabel(i);
       const emoji = itemEmoji(i);
-      const k     = inventoryKey(i);
-      const inInv = Object.prototype.hasOwnProperty.call(INVENTORY, k);
       const noteTxt = i.note ? `<span class="chip-note"> · ${escHtml(i.note)}</span>` : '';
 
-      if (i.cancelled) {
-        return `<span class="order-item-chip chip-cancelled">${emoji?emoji+' ':''}${escHtml(label)}<span class="chip-qty">×${i.quantity}</span>${noteTxt}<button class="chip-action-btn" onclick="event.stopPropagation();restoreItem('${order.id}','${escHtml(i.id)}')" title="復原此品項">↩</button></span>`;
-      }
       if (i.quantity === 0) {
         return `<span class="order-item-chip chip-cancelled">${emoji?emoji+' ':''}${escHtml(label)}<span class="chip-qty">×0</span>${noteTxt}</span>`;
       }
 
-      const warn = i.allocated && warnKeys.has(k);
-      let chipClass, icon;
-      if (warn) {
-        chipClass = 'chip-warn'; icon = '';
-      } else if (i.allocated) {
-        chipClass = 'chip-alloc'; icon = '<span class="alloc-icon">✓</span>';
+      const st = itemState(i);
+      let chipClass, icon, title;
+      if (st === 'shortage') {
+        chipClass = 'chip-shortage'; icon = '<span class="alloc-icon">✕</span>'; title = '缺貨（不計利潤／出貨）· 點擊回到登記';
+      } else if (st === 'allocated') {
+        chipClass = 'chip-alloc';    icon = '<span class="alloc-icon">✓</span>'; title = '已備貨 · 點擊標記缺貨';
       } else {
-        chipClass = 'chip-unalloc'; icon = '<span class="alloc-icon">○</span>';
+        chipClass = 'chip-unalloc';  icon = '<span class="alloc-icon">○</span>'; title = '登記 · 點擊標記已備貨';
       }
 
-      const delBtn = warn ? `<button class="chip-action-btn" onclick="event.stopPropagation();cancelItem('${order.id}','${escHtml(i.id)}')" title="移除此缺貨品項">×</button>` : '';
-      const clickable = `onclick="toggleAllocated('${order.id}','${escHtml(i.id)}',this)" title="${i.allocated?'取消備貨':'標記已備貨'}"`;
-
-      const inner = `${icon}${emoji ? emoji+' ' : ''}${escHtml(label)}<span class="chip-qty">×${i.quantity}</span>${noteTxt}${delBtn}`;
-      return `<span class="order-item-chip${chipClass?' '+chipClass:''}" ${clickable}>${inner}</span>`;
+      const inner = `${icon}${emoji ? emoji+' ' : ''}${escHtml(label)}<span class="chip-qty">×${i.quantity}</span>${noteTxt}`;
+      return `<span class="order-item-chip ${chipClass}" onclick="cycleItemState('${order.id}','${escHtml(i.id)}')" title="${title}">${inner}</span>`;
     }).join('');
 
-    const { revenue, cost, profit } = calcOrderFinancials(order);
+    const { revenue, cost, profit } = calcOrderFinancials(order, fulfillment);
     const financials = `
       <div class="order-financials">
         <span class="fin-item"><span class="fin-label">售</span><span class="fin-val">$${revenue}</span></span>
@@ -1574,7 +1566,8 @@ function renderStats() {
 
   if (!pr) return;
   let rev = 0, cost = 0;
-  orders.forEach(o => { const f = calcOrderFinancials(o); rev += f.revenue; cost += f.cost; });
+  const fulfillment = stockFulfillment();
+  orders.forEach(o => { const f = calcOrderFinancials(o, fulfillment); rev += f.revenue; cost += f.cost; });
   const profit = rev - cost;
   const hasData = rev > 0 || cost > 0;
   if (!hasData) { pr.innerHTML = ''; pr.style.display = 'none'; return; }
