@@ -74,10 +74,6 @@ input[type=number]{width:72px;}
 .btn-del:hover{background:#fde8e8;border-color:rgba(239,68,68,.5);}
 .btn-copy{background:var(--primary);color:#fff;width:100%;padding:10px;margin-top:8px;font-size:.9rem;border-radius:14px;}
 .btn-outline{background:#f5f5f5;border:none;color:var(--text);}
-.inherit-round-btn{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;text-align:left;padding:12px 16px;border:1.5px solid var(--border);border-radius:14px;background:#fff;color:var(--text);font-size:.92rem;font-weight:600;font-family:inherit;cursor:pointer;transition:all .15s;}
-.inherit-round-btn:hover{border-color:var(--accent);background:#fffdf5;}
-.inherit-round-btn.active{border-color:var(--accent);box-shadow:0 0 0 3px rgba(245,200,66,.2);}
-.inherit-round-tag{flex-shrink:0;font-size:.72rem;font-weight:700;color:var(--accent-text);background:var(--accent);padding:2px 8px;border-radius:10px;}
 .import-cat-row{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1.5px solid var(--border);border-radius:12px;background:#fff;cursor:pointer;margin-bottom:8px;}
 .import-cat-row:hover{border-color:var(--accent);background:#fffdf5;}
 .import-cat-row input{margin-top:2px;width:16px;height:16px;flex-shrink:0;cursor:pointer;}
@@ -397,16 +393,88 @@ hr{border:none;border-top:1px solid rgba(0,0,0,.06);margin:16px 0;}
 </div>
 
 <div id="inherit-modal" style="display:none;position:fixed;inset:0;z-index:600;background:rgba(0,0,0,.4);backdrop-filter:blur(3px);align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)closeInheritModal()">
-  <div style="background:var(--bg);border-radius:16px;width:min(420px,100%);max-height:85vh;overflow-y:auto;box-shadow:0 12px 48px rgba(0,0,0,.25)">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(0,0,0,.07)">
+  <div style="background:var(--bg);border-radius:16px;width:min(520px,100%);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 12px 48px rgba(0,0,0,.25)">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(0,0,0,.07);flex-shrink:0">
       <span style="font-weight:800;font-size:1.05rem">沿用設定</span>
       <button onclick="closeInheritModal()" style="background:none;border:none;font-size:1.3rem;cursor:pointer;color:var(--muted);line-height:1;padding:4px 8px">×</button>
     </div>
-    <div style="padding:16px 20px">
-      <div style="font-size:.9rem;color:var(--muted);margin-bottom:6px">新代購「<b id="inherit-new-name" style="color:var(--text)"></b>」</div>
-      <div style="font-size:.92rem;margin-bottom:14px">要沿用哪一輪的設定？<br><span style="color:var(--muted);font-size:.82rem">（複製品項結構、平台、訂單狀態、外觀；不含庫存與訂單）</span></div>
-      <div id="inherit-round-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px"></div>
-      <button class="btn btn-outline" style="width:100%;padding:11px 0;border-radius:14px" onclick="finalizeNewRound(null)">不沿用，空白開始</button>
+    <div style="padding:16px 20px;overflow-y:auto">
+      <div style="font-size:.9rem;color:var(--muted);margin-bottom:10px">新代購「<b id="inherit-new-name" style="color:var(--text)"></b>」</div>
+      <div class="form-group" style="margin-bottom:14px">
+        <label style="font-size:.82rem;font-weight:600;color:var(--muted)">沿用來源代購輪</label>
+        <select id="inherit-src-round" onchange="onInheritSrcChange()" style="width:100%"></select>
+      </div>
+      <div style="font-size:.82rem;font-weight:700;color:var(--muted);margin-bottom:8px">要帶進新一輪的資料（勾選要帶的；可逐項選）</div>
+
+      <label class="import-cat-row">
+        <input type="checkbox" id="inherit-cat-inventory" checked onchange="renderInheritInvList()">
+        <div style="flex:1">
+          <div class="import-cat-name">庫存項目</div>
+          <div class="import-cat-hint">以「剩餘數量」（庫存−已售）當新一輪的起始庫存</div>
+        </div>
+      </label>
+      <div id="inherit-inv-block" style="margin:-2px 0 10px 4px">
+        <div style="display:flex;align-items:center;gap:12px;margin:6px 0;font-size:.78rem;flex-wrap:wrap">
+          <span style="color:var(--muted)">複製欄位</span>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="inherit-invf-price" checked>售價</label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="inherit-invf-cost" checked>成本</label>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" id="inherit-invf-stock" checked>庫存(剩餘)</label>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin:6px 0">
+          <span id="inherit-inv-count" style="font-size:.78rem;color:var(--muted);flex:1"></span>
+          <button class="btn btn-outline" style="padding:3px 10px;font-size:.76rem" onclick="inheritToggleAll('inherit-inv-cb',true)">全選</button>
+          <button class="btn btn-outline" style="padding:3px 10px;font-size:.76rem" onclick="inheritToggleAll('inherit-inv-cb',false)">全不選</button>
+        </div>
+        <div class="import-inv-list" id="inherit-inv-list"></div>
+      </div>
+
+      <label class="import-cat-row">
+        <input type="checkbox" id="inherit-cat-layers" checked onchange="renderInheritLayList()">
+        <div style="flex:1"><div class="import-cat-name">品項層級與選項</div><div class="import-cat-hint">品項／顏色等層級的選項</div></div>
+      </label>
+      <div id="inherit-lay-block" style="margin:-2px 0 10px 4px">
+        <div style="display:flex;align-items:center;gap:8px;margin:6px 0">
+          <span style="flex:1"></span>
+          <button class="btn btn-outline" style="padding:3px 10px;font-size:.76rem" onclick="inheritToggleAll('inherit-lay-cb',true)">全選</button>
+          <button class="btn btn-outline" style="padding:3px 10px;font-size:.76rem" onclick="inheritToggleAll('inherit-lay-cb',false)">全不選</button>
+        </div>
+        <div class="import-inv-list" id="inherit-lay-list"></div>
+      </div>
+
+      <label class="import-cat-row">
+        <input type="checkbox" id="inherit-cat-platforms" checked onchange="renderInheritPlatList()">
+        <div style="flex:1"><div class="import-cat-name">買家平台</div></div>
+      </label>
+      <div id="inherit-plat-block" style="margin:-2px 0 10px 4px">
+        <div style="display:flex;align-items:center;gap:8px;margin:6px 0">
+          <span style="flex:1"></span>
+          <button class="btn btn-outline" style="padding:3px 10px;font-size:.76rem" onclick="inheritToggleAll('inherit-plat-cb',true)">全選</button>
+          <button class="btn btn-outline" style="padding:3px 10px;font-size:.76rem" onclick="inheritToggleAll('inherit-plat-cb',false)">全不選</button>
+        </div>
+        <div class="import-inv-list" id="inherit-plat-list"></div>
+      </div>
+
+      <label class="import-cat-row">
+        <input type="checkbox" id="inherit-cat-statuses" checked onchange="renderInheritStatList()">
+        <div style="flex:1"><div class="import-cat-name">訂單狀態</div></div>
+      </label>
+      <div id="inherit-stat-block" style="margin:-2px 0 10px 4px">
+        <div style="display:flex;align-items:center;gap:8px;margin:6px 0">
+          <span style="flex:1"></span>
+          <button class="btn btn-outline" style="padding:3px 10px;font-size:.76rem" onclick="inheritToggleAll('inherit-stat-cb',true)">全選</button>
+          <button class="btn btn-outline" style="padding:3px 10px;font-size:.76rem" onclick="inheritToggleAll('inherit-stat-cb',false)">全不選</button>
+        </div>
+        <div class="import-inv-list" id="inherit-stat-list"></div>
+      </div>
+
+      <label class="import-cat-row">
+        <input type="checkbox" id="inherit-cat-appearance" checked>
+        <div style="flex:1"><div class="import-cat-name">外觀（標題／主題色）</div><div class="import-cat-hint" id="inherit-hint-appearance"></div></div>
+      </label>
+    </div>
+    <div style="display:flex;gap:10px;padding:14px 20px;border-top:1px solid rgba(0,0,0,.07);flex-shrink:0">
+      <button class="btn btn-outline" style="flex:1" onclick="finalizeNewRoundBlank()">空白開始</button>
+      <button class="btn btn-primary" style="flex:2" onclick="confirmInheritRound()">建立新的一輪</button>
     </div>
   </div>
 </div>
@@ -2346,24 +2414,29 @@ function deleteOption(layerId, optIdx, parentVal = null) {
    ROUND MANAGEMENT
 ───────────────────────────────────────── */
 // Settings copied when a new round inherits from an existing one (never orders/inventory)
-const INHERIT_SUFFIXES = ['layers', 'platforms', 'statuses', 'app_config'];
 let _pendingRoundName = null;
+let _inheritSrcId = '';
+let _inheritLayOpts = [];   // flat list backing the layer-option checkboxes
 
 function createRound() {
   const name = prompt('新代購名稱：', `第${ROUNDS_META.length + 1}輪代購`);
   if (!name || !name.trim()) return;
   _pendingRoundName = name.trim();
-  if (ROUNDS_META.length === 0) { finalizeNewRound(null); return; }
+  if (ROUNDS_META.length === 0) { _commitNewRound(_pendingRoundName, null); return; }
   openInheritModal();
 }
 
 function openInheritModal() {
   document.getElementById('inherit-new-name').textContent = _pendingRoundName;
-  document.getElementById('inherit-round-list').innerHTML = ROUNDS_META.map(r =>
-    `<button class="inherit-round-btn${r.id === ACTIVE_ROUND_ID ? ' active' : ''}" onclick="finalizeNewRound('${r.id}')">
-      <span>${escHtml(r.name)}</span>
-      ${r.id === ACTIVE_ROUND_ID ? '<span class="inherit-round-tag">目前</span>' : ''}
-    </button>`).join('');
+  const sel = document.getElementById('inherit-src-round');
+  sel.innerHTML = ROUNDS_META.map(r =>
+    `<option value="${escHtml(r.id)}">${escHtml(r.name)}${r.id === ACTIVE_ROUND_ID ? '（目前）' : ''}</option>`).join('');
+  _inheritSrcId = ROUNDS_META.find(r => r.id === ACTIVE_ROUND_ID) ? ACTIVE_ROUND_ID : ROUNDS_META[0].id;
+  sel.value = _inheritSrcId;
+  ['inventory','layers','platforms','statuses','appearance'].forEach(c => {
+    const cb = document.getElementById('inherit-cat-' + c); if (cb) cb.checked = true;
+  });
+  onInheritSrcChange();
   document.getElementById('inherit-modal').style.display = 'flex';
 }
 
@@ -2372,23 +2445,255 @@ function closeInheritModal() {
   _pendingRoundName = null;
 }
 
-function finalizeNewRound(sourceId) {
-  if (!_pendingRoundName) return;
+// Source round's effective layers (falls back to defaults when the round never saved any).
+function _srcLayers(srcId) {
+  return _roundData(srcId, 'layers', null) || JSON.parse(JSON.stringify(DEFAULT_LAYERS));
+}
+
+// Key for an order item built with an explicit layers array (mirrors inventoryKey()).
+function _invKeyWith(item, layers) {
+  if (item.sels) {
+    const currentIds = new Set(layers.map(l => l.id));
+    const parts = layers.map(l => item.sels[l.id] || '');
+    Object.entries(item.sels).forEach(([id, v]) => { if (!currentIds.has(id) && v) parts.push(v); });
+    while (parts.length > 0 && !parts[parts.length - 1]) parts.pop();
+    return parts.join('|');
+  }
+  return [item.product, item.color].filter(Boolean).join('|');
+}
+
+// Remaining stock per inventory key for a round: stock − (non-cancelled sold qty).
+// null stock (unlimited) stays unlimited. Matches the 剩餘 column of 進銷存總覽.
+function _roundRemaining(srcId) {
+  const layers = _srcLayers(srcId);
+  const inv    = _roundData(srcId, 'inventory', {}) || {};
+  const ords   = _roundData(srcId, 'orders', []) || [];
+  const sold = {};
+  ords.forEach(o => (o.items || []).forEach(i => {
+    if (i.cancelled || !(i.quantity > 0)) return;
+    const k = _invKeyWith(i, layers);
+    sold[k] = (sold[k] || 0) + i.quantity;
+  }));
+  const out = {};
+  Object.keys(inv).forEach(k => {
+    const st = inv[k] ? inv[k].stock : 0;
+    out[k] = (st == null) ? null : Math.max(0, st - (sold[k] || 0));
+  });
+  return out;
+}
+
+function onInheritSrcChange() {
+  _inheritSrcId = document.getElementById('inherit-src-round').value;
+  renderInheritInvList();
+  renderInheritLayList();
+  renderInheritPlatList();
+  renderInheritStatList();
+  renderInheritAppearance();
+}
+
+function inheritToggleAll(cls, check) {
+  document.querySelectorAll('.' + cls + ':not(:disabled)').forEach(cb => cb.checked = check);
+}
+
+function _inheritBlockOn(cat, blockId) {
+  const on = document.getElementById('inherit-cat-' + cat).checked;
+  const el = document.getElementById(blockId);
+  if (el) el.style.display = on ? 'block' : 'none';
+  return on && _inheritSrcId;
+}
+
+function renderInheritInvList() {
+  if (!_inheritBlockOn('inventory', 'inherit-inv-block')) return;
+  const inv = _roundData(_inheritSrcId, 'inventory', {}) || {};
+  const remaining = _roundRemaining(_inheritSrcId);
+  const keys = Object.keys(inv).sort((a, b) => a.localeCompare(b));
+  const listEl = document.getElementById('inherit-inv-list');
+  const countEl = document.getElementById('inherit-inv-count');
+  if (!keys.length) {
+    listEl.innerHTML = '<div style="color:var(--muted);font-size:.83rem;padding:10px;text-align:center">來源輪沒有庫存項目</div>';
+    if (countEl) countEl.textContent = '';
+    return;
+  }
+  listEl.innerHTML = keys.map(k => {
+    const it = inv[k] || {};
+    const rem = remaining[k];
+    const remTxt = (rem == null) ? '不限' : rem;
+    return `<label class="import-inv-row">
+      <input type="checkbox" class="inherit-inv-cb" value="${escHtml(k)}" checked>
+      <span style="flex:1">${escHtml(k.replace(/\|/g, ' · '))}</span>
+      <span style="color:var(--muted);font-size:.75rem;white-space:nowrap">售${it.price || 0}／本${it.cost || 0}／剩${remTxt}</span>
+    </label>`;
+  }).join('');
+  if (countEl) countEl.textContent = `共 ${keys.length} 項（庫存＝剩餘數）`;
+}
+
+function renderInheritLayList() {
+  if (!_inheritBlockOn('layers', 'inherit-lay-block')) return;
+  const layers = _srcLayers(_inheritSrcId);
+  const listEl = document.getElementById('inherit-lay-list');
+  _inheritLayOpts = [];
+  let html = '';
+  layers.forEach((l, li) => {
+    const cascade = l.perParent && Object.keys(l.perParent).length > 0;
+    const rows = [];
+    if (cascade) {
+      Object.entries(l.perParent).forEach(([pk, arr]) => (arr || []).forEach(v =>
+        rows.push({ pathKey: pk, value: v, label: (pk ? pk.replace(/\|/g, ' · ') + ' → ' : '') + v })));
+    } else {
+      (l.options || []).forEach(v => rows.push({ pathKey: '', value: v, label: v }));
+    }
+    if (!rows.length) return;
+    html += `<div style="font-size:.78rem;font-weight:700;color:var(--muted);padding:6px 9px 2px">${escHtml(l.name || ('第' + (li + 1) + '層'))}</div>`;
+    rows.forEach(r => {
+      const idx = _inheritLayOpts.length;
+      _inheritLayOpts.push({ layerIdx: li, pathKey: r.pathKey, value: r.value });
+      html += `<label class="import-inv-row">
+        <input type="checkbox" class="inherit-lay-cb" value="${idx}" checked>
+        <span style="flex:1">${escHtml(r.label)}</span></label>`;
+    });
+  });
+  listEl.innerHTML = html || '<div style="color:var(--muted);font-size:.83rem;padding:10px;text-align:center">來源輪沒有層級選項</div>';
+}
+
+function renderInheritPlatList() {
+  if (!_inheritBlockOn('platforms', 'inherit-plat-block')) return;
+  const plats = _roundData(_inheritSrcId, 'platforms', []) || [];
+  const listEl = document.getElementById('inherit-plat-list');
+  listEl.innerHTML = plats.length
+    ? plats.map((p, idx) => `<label class="import-inv-row">
+        <input type="checkbox" class="inherit-plat-cb" value="${idx}" checked>
+        <span style="flex:1">${escHtml(p)}</span></label>`).join('')
+    : '<div style="color:var(--muted);font-size:.83rem;padding:10px;text-align:center">來源輪沒有平台設定</div>';
+}
+
+function renderInheritStatList() {
+  if (!_inheritBlockOn('statuses', 'inherit-stat-block')) return;
+  const stats = _roundData(_inheritSrcId, 'statuses', []) || [];
+  const listEl = document.getElementById('inherit-stat-list');
+  listEl.innerHTML = stats.length
+    ? stats.map((s, idx) => `<label class="import-inv-row">
+        <input type="checkbox" class="inherit-stat-cb" value="${idx}" checked>
+        <span style="flex:1">${escHtml(s.label || s.id || '')}</span></label>`).join('')
+    : '<div style="color:var(--muted);font-size:.83rem;padding:10px;text-align:center">來源輪沒有訂單狀態</div>';
+}
+
+function renderInheritAppearance() {
+  const cfg = _roundData(_inheritSrcId, 'app_config', null);
+  const el = document.getElementById('inherit-hint-appearance');
+  if (el) el.textContent = cfg && cfg.title ? `來源標題：${cfg.title}` : '沿用來源外觀設定';
+}
+
+function finalizeNewRoundBlank() { _commitNewRound(_pendingRoundName, null); }
+function confirmInheritRound()   { _commitNewRound(_pendingRoundName, _inheritSrcId); }
+
+// Create the new round, copying only the checked data from `sourceId` (null = blank).
+function _commitNewRound(name, sourceId) {
+  if (!name) return;
   const id = 'r_' + Date.now().toString(36);
-  ROUNDS_META.push({ id, name: _pendingRoundName, createdAt: new Date().toISOString() });
+  ROUNDS_META.push({ id, name, createdAt: new Date().toISOString() });
   localStorage.setItem('rounds_meta', JSON.stringify(ROUNDS_META));
   const src = sourceId ? ROUNDS_META.find(r => r.id === sourceId) : null;
+  const summary = [];
+
   if (sourceId) {
-    INHERIT_SUFFIXES.forEach(suffix => {
-      const v = localStorage.getItem(sourceId + '_' + suffix);
-      if (v !== null) localStorage.setItem(id + '_' + suffix, v);
-    });
+    const srcLayers = _srcLayers(sourceId);
+    const doInv  = document.getElementById('inherit-cat-inventory').checked;
+    const doLay  = document.getElementById('inherit-cat-layers').checked;
+    const doPlat = document.getElementById('inherit-cat-platforms').checked;
+    const doStat = document.getElementById('inherit-cat-statuses').checked;
+    const doApp  = document.getElementById('inherit-cat-appearance').checked;
+
+    // New-round layer scaffolding: same id/name/mode as source, options filled from selections.
+    const newLayers = srcLayers.map(l => ({
+      id: l.id, name: l.name,
+      _cascade: !!(l.perParent && Object.keys(l.perParent).length > 0),
+      options: [], perParent: {}
+    }));
+    const addOpt = (li, pathKey, value) => {
+      if (li < 0 || li >= newLayers.length || value === '' || value == null) return;
+      const nl = newLayers[li];
+      if (li === 0 || !nl._cascade) {
+        if (!nl.options.includes(value)) nl.options.push(value);
+      } else {
+        if (!nl.perParent[pathKey]) nl.perParent[pathKey] = [];
+        if (!nl.perParent[pathKey].includes(value)) nl.perParent[pathKey].push(value);
+      }
+    };
+
+    // 1) Selected layer options.
+    if (doLay) {
+      const picks = [...document.querySelectorAll('.inherit-lay-cb:checked')].map(cb => _inheritLayOpts[+cb.value]).filter(Boolean);
+      picks.forEach(o => addOpt(o.layerIdx, o.pathKey, o.value));
+      if (picks.length) summary.push(`層級選項 ${picks.length}`);
+    }
+
+    // 2) Inventory — remaining stock becomes the new round's starting stock.
+    //    Also auto-add any layer options a selected key relies on (so keys aren't stale).
+    const newInventory = {};
+    if (doInv) {
+      const srcInv = _roundData(sourceId, 'inventory', {}) || {};
+      const remaining = _roundRemaining(sourceId);
+      const invFP = document.getElementById('inherit-invf-price').checked;
+      const invFC = document.getElementById('inherit-invf-cost').checked;
+      const invFS = document.getElementById('inherit-invf-stock').checked;
+      const keys = [...document.querySelectorAll('.inherit-inv-cb:checked')].map(cb => cb.value);
+      keys.forEach(k => {
+        const segs = k.split('|');
+        for (let i = 0; i < segs.length && i < newLayers.length; i++) addOpt(i, segs.slice(0, i).join('|'), segs[i]);
+        const s = srcInv[k] || {};
+        const rem = remaining[k];
+        newInventory[k] = {
+          price: invFP ? (s.price || 0) : 0,
+          cost:  invFC ? (s.cost  || 0) : 0,
+          stock: invFS ? (rem === null ? null : (rem || 0)) : 0
+        };
+      });
+      if (keys.length) summary.push(`庫存 ${keys.length} 項（剩餘）`);
+    }
+
+    // Write layers whenever we gathered any option or any inventory key.
+    if (doLay || doInv) {
+      const hasData = newLayers.some(l => l.options.length || Object.keys(l.perParent).length) || Object.keys(newInventory).length;
+      if (hasData) {
+        const out = newLayers.map(l => {
+          const o = { id: l.id, name: l.name };
+          if (l._cascade && Object.keys(l.perParent).length) o.perParent = l.perParent;
+          else o.options = l.options;
+          return o;
+        });
+        localStorage.setItem(id + '_layers', JSON.stringify(out));
+      }
+    }
+    if (doInv && Object.keys(newInventory).length) localStorage.setItem(id + '_inventory', JSON.stringify(newInventory));
+
+    // 3) Platforms — selected only.
+    if (doPlat) {
+      const srcP = _roundData(sourceId, 'platforms', []) || [];
+      const picks = [...document.querySelectorAll('.inherit-plat-cb:checked')].map(cb => srcP[+cb.value]).filter(v => v != null);
+      localStorage.setItem(id + '_platforms', JSON.stringify(picks));
+      if (picks.length) summary.push(`平台 ${picks.length}`);
+    }
+
+    // 4) Statuses — selected only (skip write when none chosen so the round keeps defaults).
+    if (doStat) {
+      const srcS = _roundData(sourceId, 'statuses', []) || [];
+      const picks = [...document.querySelectorAll('.inherit-stat-cb:checked')].map(cb => srcS[+cb.value]).filter(Boolean).map(s => ({ ...s }));
+      if (picks.length) { localStorage.setItem(id + '_statuses', JSON.stringify(picks)); summary.push(`狀態 ${picks.length}`); }
+    }
+
+    // 5) Appearance — whole title/color.
+    if (doApp) {
+      const srcC = _roundData(sourceId, 'app_config', null);
+      if (srcC) { localStorage.setItem(id + '_app_config', JSON.stringify(srcC)); summary.push('外觀'); }
+    }
   }
+
   scheduleSyncPush();
   document.getElementById('inherit-modal').style.display = 'none';
   _pendingRoundName = null;
   switchRound(id);
-  if (src) toast(`已沿用「${src.name}」的設定`);
+  if (src) toast(summary.length ? `已從「${src.name}」沿用：${summary.join('、')}` : `已建立「${name}」（未沿用資料）`);
+  else toast(`已建立「${name}」`);
 }
 
 /* ─────────────────────────────────────────
