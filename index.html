@@ -1671,14 +1671,14 @@ function renderSummaryTable() {
   }));
 
   // 依層級順序排列 rows0
-  let rows0 = LAYERS[0] ? LAYERS[0].options.filter(o => rows0Set.has(o)) : [];
+  let rows0 = LAYERS[0] ? (LAYERS[0].options || []).filter(o => rows0Set.has(o)) : [];
   rows0Set.forEach(r => { if (!rows0.includes(r)) rows0.push(r); });
 
   // 依層級順序排列 variants（第2層以後的組合）
   const onlyNoVariant = variantSet.size === 1 && variantSet.has('—');
   let variants = [];
   if (!onlyNoVariant) {
-    variants = LAYERS[1] ? LAYERS[1].options.filter(o => variantSet.has(o)) : [];
+    variants = LAYERS[1] ? (LAYERS[1].options || []).filter(o => variantSet.has(o)) : [];
     variantSet.forEach(r => { if (r !== '—' && !variants.includes(r)) variants.push(r); });
     if (variantSet.has('—')) variants.push('—');
   }
