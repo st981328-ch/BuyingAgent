@@ -230,6 +230,14 @@ hr{border:none;border-top:1px solid rgba(0,0,0,.06);margin:16px 0;}
 .cat-btn.active{background:var(--accent);color:var(--accent-text);}
 .item-group-hd{font-size:.7rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;padding:8px 14px 4px;margin-top:4px;}
 
+/* ─── Entry mode toggle (買家導向 / 品項導向) ─── */
+.entry-mode-toggle{display:inline-flex;gap:4px;background:#efefef;border-radius:20px;padding:4px;margin-bottom:14px;}
+.em-btn{border:none;background:none;color:var(--muted);padding:7px 18px;border-radius:16px;cursor:pointer;font-size:.84rem;font-weight:700;font-family:inherit;transition:all .15s;}
+.em-btn.active{background:var(--accent);color:var(--accent-text);}
+.pe-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.pe-row input[type=text]{flex:1;min-width:0;}
+.pe-row input[type=number]{width:80px;}
+
 /* ─── Sort bar ─── */
 .sort-bar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:14px;}
 .sort-btn{background:#f5f5f5;border:none;color:var(--muted);padding:6px 14px;border-radius:20px;cursor:pointer;font-size:.78rem;font-weight:600;font-family:inherit;transition:all .15s;display:inline-flex;align-items:center;gap:4px;}
@@ -567,6 +575,12 @@ hr{border:none;border-top:1px solid rgba(0,0,0,.06);margin:16px 0;}
   <!-- ══ TAB: 新增訂單 ══ -->
   <div id="panel-entry" class="tab-panel active">
 
+    <div class="entry-mode-toggle">
+      <button id="em-buyer"   class="em-btn active" onclick="setEntryMode('buyer')">買家導向</button>
+      <button id="em-product" class="em-btn"        onclick="setEntryMode('product')">品項導向</button>
+    </div>
+
+    <div id="entry-buyer-mode">
     <div class="card">
       <div class="card-title">買家資訊</div>
       <div class="form-row">
@@ -605,6 +619,35 @@ hr{border:none;border-top:1px solid rgba(0,0,0,.06);margin:16px 0;}
       <div id="cur-items"></div>
       <button class="btn btn-success" onclick="saveOrder()">儲存訂單</button>
     </div>
+    </div><!-- /entry-buyer-mode -->
+
+    <!-- 品項導向：一個商品 → 多位客人各買幾個 -->
+    <div id="entry-product-mode" style="display:none">
+      <div class="card">
+        <div class="card-title">選擇商品</div>
+        <div class="cat-btns" id="pe-cat-btns"></div>
+        <div class="form-row" id="pe-layer-selects"></div>
+        <div class="form-row" style="margin-top:8px">
+          <div class="form-group">
+            <label>平台（新客人預設）</label>
+            <select id="pe-platform" style="width:130px"></select>
+          </div>
+          <div class="form-group">
+            <label>備註 / 尺寸</label>
+            <input type="text" id="pe-note" placeholder="選填" style="width:110px">
+          </div>
+        </div>
+
+        <hr>
+        <div class="card-title">各客人數量</div>
+        <div id="pe-rows"></div>
+        <button class="btn btn-outline" style="font-size:.82rem" onclick="peAddRow()">＋ 新增一位客人</button>
+
+        <hr>
+        <button class="btn btn-success" onclick="peSave()">儲存分配</button>
+      </div>
+      <datalist id="pe-buyer-names"></datalist>
+    </div>
 
   </div>
 
@@ -636,6 +679,13 @@ hr{border:none;border-top:1px solid rgba(0,0,0,.06);margin:16px 0;}
         <button class="btn btn-primary" style="font-size:.82rem" onclick="exportSummary()">複製採購清單</button>
       </div>
       <div class="summary-wrap" id="summary-table"></div>
+    </div>
+    <div class="card">
+      <div class="search-bar">
+        <div class="card-title" style="margin:0">依品項看客人分配</div>
+        <span style="font-size:.75rem;color:var(--muted)">對帳 / 叫貨用</span>
+      </div>
+      <div id="product-view"></div>
     </div>
     <div class="card">
       <div class="card-title">進銷存總覽</div>
@@ -1133,11 +1183,14 @@ function cycleItemState(orderId, itemId) {
    PLATFORM SELECT
 ───────────────────────────────────────── */
 function renderPlatformSelect() {
-  const sel = document.getElementById('buyer-platform');
-  if (!sel) return;
-  const cur = sel.value;
-  sel.innerHTML = PLATFORMS.map(p => `<option value="${escHtml(p)}">${escHtml(p)}</option>`).join('');
-  if (PLATFORMS.includes(cur)) sel.value = cur;
+  const opts = PLATFORMS.map(p => `<option value="${escHtml(p)}">${escHtml(p)}</option>`).join('');
+  ['buyer-platform', 'pe-platform'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = opts;
+    if (PLATFORMS.includes(cur)) sel.value = cur;
+  });
 }
 
 /* ─────────────────────────────────────────
@@ -1148,6 +1201,7 @@ function renderLayerSelects() {
   if (!LAYERS.length) {
     container.innerHTML = '<span style="color:var(--muted);font-size:.85rem;padding:4px 0">請先在「設定」頁面設定層級</span>';
     renderCategoryBtns();
+    renderPeLayerSelects();   // keep product-oriented entry selects in sync
     return;
   }
   container.innerHTML = LAYERS.map((layer, idx) => {
@@ -1161,6 +1215,7 @@ function renderLayerSelects() {
     </div>`;
   }).join('');
   renderCategoryBtns();
+  renderPeLayerSelects();   // keep product-oriented entry selects in sync
 }
 
 function getChildOptions(layerIdx, parentVal) {
@@ -1405,6 +1460,216 @@ function saveOrder() {
   renderCurItems();
   renderAll();
   toast(`✅ 已儲存 ${buyerName} 的訂單`);
+}
+
+/* ─────────────────────────────────────────
+   PRODUCT-ORIENTED ENTRY  (one product → many customers)
+───────────────────────────────────────── */
+let entryMode = 'buyer';
+let peDirty = false;
+
+function setEntryMode(mode) {
+  entryMode = mode;
+  document.getElementById('em-buyer').classList.toggle('active', mode === 'buyer');
+  document.getElementById('em-product').classList.toggle('active', mode === 'product');
+  document.getElementById('entry-buyer-mode').style.display   = mode === 'product' ? 'none' : '';
+  document.getElementById('entry-product-mode').style.display = mode === 'product' ? '' : 'none';
+  if (mode === 'product') peReset();
+  else peDirty = false;   // leaving product mode discards its transient rows; don't keep blocking sync
+}
+
+function peReset() {
+  renderPeLayerSelects();
+  const plat = document.getElementById('pe-platform');
+  if (plat) {
+    const cur = plat.value;
+    plat.innerHTML = PLATFORMS.map(p => `<option value="${escHtml(p)}">${escHtml(p)}</option>`).join('');
+    if (PLATFORMS.includes(cur)) plat.value = cur;
+  }
+  const note = document.getElementById('pe-note'); if (note) note.value = '';
+  // Autocomplete: existing customer names
+  const dl = document.getElementById('pe-buyer-names');
+  if (dl) {
+    const names = [...new Set(orders.map(o => o.buyerName).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-TW'));
+    dl.innerHTML = names.map(n => `<option value="${escHtml(n)}"></option>`).join('');
+  }
+  const rows = document.getElementById('pe-rows');
+  if (rows) rows.innerHTML = '';
+  peAddRow();
+  peDirty = false;
+}
+
+function peAddRow() {
+  const rows = document.getElementById('pe-rows');
+  if (!rows) return;
+  const id = uid();
+  const div = document.createElement('div');
+  div.className = 'pe-row';
+  div.id = 'pe-row-' + id;
+  div.innerHTML = `
+    <input type="text" list="pe-buyer-names" placeholder="客人姓名 / 帳號" autocomplete="off" oninput="peMarkDirty()">
+    <input type="number" value="1" min="1" max="99" oninput="peMarkDirty()" onwheel="this.blur()">
+    <button class="btn btn-del" style="padding:4px 10px" onclick="peRemoveRow('${id}')">✕</button>`;
+  rows.appendChild(div);
+  peDirty = true;
+}
+
+function peRemoveRow(id) {
+  const el = document.getElementById('pe-row-' + id);
+  if (el) el.remove();
+  if (!document.querySelector('#pe-rows .pe-row')) peAddRow();
+  peMarkDirty();
+}
+
+function peMarkDirty() { peDirty = true; }
+
+function renderPeCategoryBtns() {
+  const container = document.getElementById('pe-cat-btns');
+  if (!container) return;
+  if (!LAYERS.length || !LAYERS[0]?.options.length) { container.innerHTML = ''; return; }
+  container.innerHTML = LAYERS[0].options.map(opt =>
+    `<button class="cat-btn" onclick="selectPeCategory('${escHtml(opt)}')">${escHtml(opt)}</button>`
+  ).join('');
+}
+
+function selectPeCategory(val) {
+  const sel = document.getElementById('pe-sel-' + LAYERS[0]?.id);
+  if (!sel) return;
+  sel.value = val;
+  document.querySelectorAll('#pe-cat-btns .cat-btn').forEach(b =>
+    b.classList.toggle('active', b.textContent === val));
+  syncPeLayerSelectFrom(1);
+}
+
+function renderPeLayerSelects() {
+  const container = document.getElementById('pe-layer-selects');
+  if (!container) return;
+  if (!LAYERS.length) {
+    container.innerHTML = '<span style="color:var(--muted);font-size:.85rem;padding:4px 0">請先在「設定」頁面設定層級</span>';
+    renderPeCategoryBtns();
+    return;
+  }
+  container.innerHTML = LAYERS.map((layer, idx) => {
+    const opts = idx === 0 ? (layer.options || []) : [];
+    return `<div class="form-group">
+      <label>${escHtml(layer.name)}</label>
+      <select id="pe-sel-${layer.id}" style="width:140px" onchange="syncPeLayerSelectFrom(${idx + 1})">
+        <option value="">選擇${escHtml(layer.name)}…</option>
+        ${opts.map(opt => `<option value="${escHtml(opt)}">${COLOR_EMOJI[opt]?COLOR_EMOJI[opt]+' ':''}${escHtml(opt)}</option>`).join('')}
+      </select>
+    </div>`;
+  }).join('');
+  renderPeCategoryBtns();
+}
+
+function syncPeLayerSelectFrom(startIdx) {
+  for (let idx = startIdx; idx < LAYERS.length; idx++) {
+    const pathKey = LAYERS.slice(0, idx).map(l => document.getElementById('pe-sel-' + l.id)?.value || '').join('|');
+    const layer = LAYERS[idx];
+    const sel = document.getElementById('pe-sel-' + layer.id);
+    if (!sel) continue;
+    const opts = getChildOptions(idx, pathKey);
+    const cur = sel.value;
+    sel.innerHTML = `<option value="">選擇${escHtml(layer.name)}…</option>` +
+      opts.map(opt => `<option value="${escHtml(opt)}">${COLOR_EMOJI[opt]?COLOR_EMOJI[opt]+' ':''}${escHtml(opt)}</option>`).join('');
+    if (opts.includes(cur)) sel.value = cur;
+    else if (opts.length === 1) sel.value = opts[0];
+    else sel.value = '';
+  }
+}
+
+function peSave() {
+  if (!LAYERS.length) { toast('請先在品項管理設定層級'); return; }
+  const sels = {};
+  for (const layer of LAYERS) {
+    const val = document.getElementById('pe-sel-' + layer.id)?.value;
+    if (!val) { toast(`請選擇「${layer.name}」`); return; }
+    sels[layer.id] = val;
+  }
+  const note     = document.getElementById('pe-note').value.trim();
+  const platform = document.getElementById('pe-platform').value;
+
+  const dist = [];
+  document.querySelectorAll('#pe-rows .pe-row').forEach(row => {
+    const name = row.querySelector('input[type=text]').value.trim();
+    const qty  = Math.max(0, parseInt(row.querySelector('input[type=number]').value) || 0);
+    if (name && qty > 0) dist.push({ name, qty });
+  });
+  if (!dist.length) { toast('請至少填一位客人與數量'); return; }
+
+  const selKey = JSON.stringify(sels);
+  const now = new Date().toISOString();
+  let totalQty = 0;
+  dist.forEach(({ name, qty }) => {
+    totalQty += qty;
+    const order = orders.find(o => o.buyerName === name);   // merge into same-named customer's order
+    if (order) {
+      const existing = order.items.find(i => i.sels && JSON.stringify(i.sels) === selKey && (i.note || '') === note);
+      if (existing) existing.quantity += qty;
+      else order.items.push({ id: uid(), sels: { ...sels }, quantity: qty, note });
+    } else {
+      orders.push({
+        id: uid(),
+        buyerName: name,
+        platform,
+        items: [{ id: uid(), sels: { ...sels }, quantity: qty, note }],
+        status: getDefaultStatusId(),
+        createdAt: now
+      });
+    }
+  });
+
+  save();
+  const label = itemLabel({ sels });
+  peReset();
+  renderAll();
+  toast(`✅ 已分配「${label}」給 ${dist.length} 位客人，共 ${totalQty} 個`);
+}
+
+// Read-only by-product view (對帳 / 叫貨): each product → which customers bought how many.
+// Totals mirror 採購數量統計 (sums every item with quantity>0), so the two reconcile.
+function renderProductView() {
+  const el = document.getElementById('product-view');
+  if (!el) return;
+  if (!orders.length) {
+    el.innerHTML = '<div class="empty" style="padding:18px"><div class="ico">🏷️</div><div>還沒有訂單資料</div></div>';
+    return;
+  }
+
+  const groups = {};
+  orders.forEach(o => o.items.forEach(i => {
+    if (!(i.quantity > 0)) return;
+    const key = itemGroupKey(i);
+    if (!groups[key]) {
+      groups[key] = { label: itemLabel(i), note: i.note || '', emoji: itemEmoji(i), r0: itemRow0(i), buyers: {}, total: 0 };
+    }
+    const g = groups[key];
+    g.buyers[o.buyerName] = (g.buyers[o.buyerName] || 0) + i.quantity;
+    g.total += i.quantity;
+  }));
+
+  const l0 = (LAYERS[0] && LAYERS[0].options) || [];
+  const entries = Object.values(groups).sort((a, b) => {
+    const ia = l0.indexOf(a.r0), ib = l0.indexOf(b.r0);
+    const ra = ia === -1 ? 9999 : ia, rb = ib === -1 ? 9999 : ib;
+    if (ra !== rb) return ra - rb;
+    return a.label.localeCompare(b.label, 'zh-TW');
+  });
+
+  el.innerHTML = entries.map(g => {
+    const buyers = Object.entries(g.buyers).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'zh-TW'));
+    const rows = buyers.map(([name, q]) =>
+      `<div class="cust-item-row"><span>👤</span><span>${escHtml(name)}</span><span class="cust-qty">× ${q}</span></div>`).join('');
+    const noteTxt = g.note ? `<span style="font-weight:normal;color:var(--muted);font-size:.8rem"> (${escHtml(g.note)})</span>` : '';
+    return `
+      <div class="cust-block">
+        <div class="cust-header">
+          <span>${g.emoji ? g.emoji + ' ' : '🏷️ '}${escHtml(g.label)}${noteTxt}</span>
+          <span style="font-weight:normal;font-size:.8rem;color:var(--muted)">共 ${g.total} 個</span>
+        </div>
+        <div class="cust-items">${rows}</div>
+      </div>`;
+  }).join('');
 }
 
 /* ─────────────────────────────────────────
@@ -3134,6 +3399,7 @@ function renderAll() {
   renderStats();
   renderOrders();
   renderSummaryTable();
+  renderProductView();
   renderInvSummary();
   renderCustomers();
   renderSettings();
@@ -3374,7 +3640,7 @@ async function fetchRemote() {
 
 // True while the user is mid-action, so a background pull won't reload under them.
 function isBusyEditing() {
-  if (editingOrder || curItems.length) return true;
+  if (editingOrder || curItems.length || peDirty) return true;
   const ae = document.activeElement;
   if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return true;
   return ['backup-modal','global-customers-modal','inherit-modal','import-round-modal'].some(id => {
