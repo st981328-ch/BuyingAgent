@@ -1617,7 +1617,10 @@ function peSave() {
   let totalQty = 0;
   dist.forEach(({ name, qty }) => {
     totalQty += qty;
-    const order = orders.find(o => o.buyerName === name);   // merge into same-named customer's order
+    // Merge into the same customer's order: prefer a matching primary name,
+    // else an order whose backup name is this customer (union identity).
+    const order = orders.find(o => (o.buyerName || '').trim() === name)
+               || orders.find(o => (o.backupName || '').trim() === name);
     if (order) {
       const existing = order.items.find(i => i.sels && JSON.stringify(i.sels) === selKey && (i.note || '') === note);
       if (existing) existing.quantity += qty;
