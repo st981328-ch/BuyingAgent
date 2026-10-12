@@ -585,12 +585,22 @@ hr{border:none;border-top:1px solid rgba(0,0,0,.06);margin:16px 0;}
       <div class="card-title">買家資訊</div>
       <div class="form-row">
         <div class="form-group">
-          <label>平台</label>
+          <label>主要平台</label>
           <select id="buyer-platform" style="width:130px"></select>
         </div>
         <div class="form-group">
-          <label>買家姓名 / 帳號</label>
+          <label>主要姓名 / 帳號</label>
           <input type="text" id="buyer-name" class="buyer-input" placeholder="輸入姓名或帳號" autocomplete="off">
+        </div>
+      </div>
+      <div class="form-row" style="margin-top:10px">
+        <div class="form-group">
+          <label>備用平台</label>
+          <select id="buyer-backup-platform" style="width:130px"></select>
+        </div>
+        <div class="form-group">
+          <label>備用姓名 / 帳號（選填）</label>
+          <input type="text" id="buyer-backup-name" class="buyer-input" placeholder="選填" autocomplete="off">
         </div>
       </div>
     </div>
@@ -1184,7 +1194,7 @@ function cycleItemState(orderId, itemId) {
 ───────────────────────────────────────── */
 function renderPlatformSelect() {
   const opts = PLATFORMS.map(p => `<option value="${escHtml(p)}">${escHtml(p)}</option>`).join('');
-  ['buyer-platform', 'pe-platform'].forEach(id => {
+  ['buyer-platform', 'buyer-backup-platform', 'pe-platform'].forEach(id => {
     const sel = document.getElementById(id);
     if (!sel) return;
     const cur = sel.value;
@@ -1443,6 +1453,8 @@ function renderCurItems() {
 function saveOrder() {
   const buyerName = document.getElementById('buyer-name').value.trim();
   const platform  = document.getElementById('buyer-platform').value;
+  const backupName = document.getElementById('buyer-backup-name').value.trim();
+  const backupPlatform = document.getElementById('buyer-backup-platform').value;
   if (!buyerName)      { toast('請填寫買家姓名'); return; }
   if (!curItems.length){ toast('請至少加入一個商品'); return; }
 
@@ -1450,6 +1462,8 @@ function saveOrder() {
     id: uid(),
     buyerName,
     platform,
+    backupName: backupName || '',
+    backupPlatform: backupName ? backupPlatform : '',
     items: [...curItems],
     status: getDefaultStatusId(),
     createdAt: new Date().toISOString()
@@ -1457,6 +1471,7 @@ function saveOrder() {
   save();
   curItems = [];
   document.getElementById('buyer-name').value = '';
+  document.getElementById('buyer-backup-name').value = '';
   renderCurItems();
   renderAll();
   toast(`✅ 已儲存 ${buyerName} 的訂單`);
@@ -1490,7 +1505,7 @@ function peReset() {
   // Autocomplete: existing customer names
   const dl = document.getElementById('pe-buyer-names');
   if (dl) {
-    const names = [...new Set(orders.map(o => o.buyerName).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-TW'));
+    const names = [...new Set(orders.flatMap(o => [o.buyerName, o.backupName]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-TW'));
     dl.innerHTML = names.map(n => `<option value="${escHtml(n)}"></option>`).join('');
   }
   const rows = document.getElementById('pe-rows');
@@ -1705,7 +1720,7 @@ function sortedOrders(list) {
 function renderOrders() {
   const q  = (document.getElementById('srch')?.value || '').toLowerCase();
   const el = document.getElementById('orders-list');
-  const filtered = q ? orders.filter(o => o.buyerName.toLowerCase().includes(q)) : orders;
+  const filtered = q ? orders.filter(o => (o.buyerName||'').toLowerCase().includes(q) || (o.backupName||'').toLowerCase().includes(q)) : orders;
 
   if (!filtered.length) {
     el.innerHTML = '<div class="empty"><div class="ico">📭</div><div>還沒有訂單</div></div>';
@@ -1768,6 +1783,7 @@ function renderOrders() {
       <div class="order-row${hasWarn?' stock-warn':''}">
         <div class="order-meta">
           <div class="order-buyer">${escHtml(order.buyerName)}</div>
+          ${order.backupName ? `<div style="font-size:.72rem;color:var(--muted);margin-top:1px">備用：${order.backupPlatform?escHtml(order.backupPlatform)+' · ':''}${escHtml(order.backupName)}</div>` : ''}
           <div class="order-date">${dt}</div>
           <div class="order-badges">
             ${(()=>{const c=STATUS_COLORS[s.colorIdx]??STATUS_COLORS[5];const opts=STATUSES.map(st=>{const sc=STATUS_COLORS[st.colorIdx]??STATUS_COLORS[5];return`<div class="status-dd-opt" onclick="selectStatus('${order.id}','${st.id}')"><span class="status-dd-dot" style="background:${sc.bg};outline:1.5px solid ${sc.fg}"></span><span class="status-dd-label" style="color:${sc.fg}">${escHtml(st.label)}</span></div>`;}).join('');return`<div class="status-dd"><button class="status-dd-btn" style="background:${c.bg};color:${c.fg}" onclick="toggleStatusMenu('${order.id}',event)">${escHtml(s.label)}</button><div class="status-dd-menu" id="sdd-${order.id}" style="display:none">${opts}</div></div>`;})()}
@@ -1790,6 +1806,7 @@ function renderOrders() {
 function renderEditForm(order) {
   const src = editingOrder;
   const platOpts = PLATFORMS.map(p => `<option value="${escHtml(p)}" ${src.platform===p?'selected':''}>${escHtml(p)}</option>`).join('');
+  const backupPlatOpts = PLATFORMS.map(p => `<option value="${escHtml(p)}" ${src.backupPlatform===p?'selected':''}>${escHtml(p)}</option>`).join('');
   const statusOpts = STATUSES.map(s => `<option value="${s.id}" ${src.status===s.id?'selected':''}>${escHtml(s.label)}</option>`).join('');
   const itemRows = src.items.map(i => `
     <div class="edit-item-row">
@@ -1800,10 +1817,14 @@ function renderEditForm(order) {
   return `
     <div class="order-edit-wrap">
       <div class="form-row" style="margin-bottom:10px">
-        <div class="form-group"><label style="font-size:.72rem">平台</label>
+        <div class="form-group"><label style="font-size:.72rem">主要平台</label>
           <select id="edit-platform" style="width:120px">${platOpts}</select></div>
-        <div class="form-group"><label style="font-size:.72rem">買家名稱</label>
-          <input type="text" id="edit-buyer" value="${escHtml(src.buyerName)}" style="width:180px"></div>
+        <div class="form-group"><label style="font-size:.72rem">主要名稱</label>
+          <input type="text" id="edit-buyer" value="${escHtml(src.buyerName)}" style="width:150px"></div>
+        <div class="form-group"><label style="font-size:.72rem">備用平台</label>
+          <select id="edit-backup-platform" style="width:120px">${backupPlatOpts}</select></div>
+        <div class="form-group"><label style="font-size:.72rem">備用名稱（選填）</label>
+          <input type="text" id="edit-backup-buyer" value="${escHtml(src.backupName||'')}" placeholder="選填" style="width:150px"></div>
         <div class="form-group"><label style="font-size:.72rem">狀態</label>
           <select id="edit-status" style="min-width:110px;width:auto;border-radius:12px">${statusOpts}</select></div>
         <div class="form-group"><label style="font-size:.72rem">訂單編號</label>
@@ -1837,6 +1858,8 @@ function removeEditItem(itemId) {
 function saveOrderEdit(id) {
   const buyer    = document.getElementById('edit-buyer')?.value.trim();
   const platform = document.getElementById('edit-platform')?.value;
+  const backupBuyer    = document.getElementById('edit-backup-buyer')?.value.trim() || '';
+  const backupPlatform = document.getElementById('edit-backup-platform')?.value || '';
   const status   = document.getElementById('edit-status')?.value;
   if (!buyer) { toast('買家名稱不能為空'); return; }
   if (!editingOrder) return;
@@ -1846,7 +1869,7 @@ function saveOrderEdit(id) {
   });
   const tracking = document.getElementById('edit-tracking')?.value.trim() || '';
   const o = orders.find(x=>x.id===id);
-  if (o) { o.buyerName = buyer; o.platform = platform; o.status = status; o.trackingNo = tracking; o.items = editingOrder.items; }
+  if (o) { o.buyerName = buyer; o.platform = platform; o.backupName = backupBuyer; o.backupPlatform = backupBuyer ? backupPlatform : ''; o.status = status; o.trackingNo = tracking; o.items = editingOrder.items; }
   save();
   editingId = null; editingOrder = null;
   renderAll();
@@ -1887,7 +1910,7 @@ function delOrder(id) {
 function renderStats() {
   const el  = document.getElementById('stats-row');
   const pr  = document.getElementById('profit-row');
-  const buyers  = new Set(orders.map(o=>o.buyerName)).size;
+  const buyers  = buildCustomerClusters(orders).length;
   const total   = orders.reduce((s,o)=>s+o.items.reduce((ss,i)=>ss+(i.cancelled||i.quantity===0?0:i.quantity),0),0);
   const firstSt = STATUSES[0] || { id:'pending', label:'待確認' };
   const pending = orders.filter(o=>o.status===firstSt.id).length;
@@ -1992,7 +2015,7 @@ function renderSummaryTable() {
 
 function buildExportText(counts, rows0, variants, noVariant, grandTotal) {
   const date   = new Date().toLocaleDateString('zh-TW');
-  const buyers = new Set(orders.map(o => o.buyerName)).size;
+  const buyers = buildCustomerClusters(orders).length;
   let txt = `📦 採購清單  ${date}\n━━━━━━━━━━━━━━━━━━━━━━\n`;
   rows0.forEach(r0 => {
     txt += `\n【${r0}】\n`;
@@ -2307,6 +2330,57 @@ function renderInvSummary() {
 /* ─────────────────────────────────────────
    CUSTOMERS
 ───────────────────────────────────────── */
+/* ─── Customer identity: group orders where ANY name (primary or backup) matches.
+       Two orders belong to the same customer if their name sets intersect. ─── */
+function buildCustomerClusters(ordersList) {
+  const norm = n => (n || '').trim();
+  const parent = {};
+  const find = x => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; };
+  const union = (a, b) => { parent[find(a)] = find(b); };
+  ordersList.forEach(o => {
+    const names = [norm(o.buyerName), norm(o.backupName)].filter(Boolean);
+    names.forEach(n => { if (!(n in parent)) parent[n] = n; });
+    for (let i = 1; i < names.length; i++) union(names[0], names[i]);
+  });
+  const groups = {};
+  ordersList.forEach(o => {
+    const key = norm(o.buyerName) || norm(o.backupName);
+    if (!key) return;
+    const root = find(key);
+    (groups[root] || (groups[root] = [])).push(o);
+  });
+  return Object.values(groups).map(grp => {
+    const asc  = grp.slice().sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+    const desc = asc.slice().reverse();
+    // Primary name = most-frequent buyerName across the cluster (tie → earliest order)
+    const freq = {};
+    asc.forEach((o, idx) => { const n = norm(o.buyerName); if (n) { if (!(n in freq)) freq[n] = { count: 0, firstIdx: idx }; freq[n].count++; } });
+    let primaryName = '';
+    Object.entries(freq).forEach(([n, info]) => {
+      const cur = freq[primaryName];
+      if (!primaryName || info.count > cur.count || (info.count === cur.count && info.firstIdx < cur.firstIdx)) primaryName = n;
+    });
+    if (!primaryName) primaryName = norm(asc[0].backupName);
+    // Primary platform = newest order carrying the primary name
+    let primaryPlatform = '';
+    for (const o of desc) { if (norm(o.buyerName) === primaryName) { primaryPlatform = o.platform || ''; break; } }
+    if (!primaryPlatform) primaryPlatform = desc[0].platform || '';
+    // Backup = newest non-empty backup whose name differs from the primary
+    let backupName = '', backupPlatform = '';
+    for (const o of desc) { const bn = norm(o.backupName); if (bn && bn !== primaryName) { backupName = bn; backupPlatform = o.backupPlatform || ''; break; } }
+    const names = [];
+    grp.forEach(o => [norm(o.buyerName), norm(o.backupName)].filter(Boolean).forEach(n => { if (!names.includes(n)) names.push(n); }));
+    return { primaryName, primaryPlatform, backupName, backupPlatform, names, orders: grp };
+  });
+}
+
+// Contact extras (platform tag + backup line) for a customer cluster header.
+function custContactExtra(c) {
+  const plat = c.primaryPlatform ? `<span style="font-weight:normal;font-size:.78rem;color:var(--muted);margin-left:6px">${escHtml(c.primaryPlatform)}</span>` : '';
+  const backup = c.backupName ? `<span style="font-weight:normal;font-size:.74rem;color:var(--muted);margin-left:8px">備用：${c.backupPlatform?escHtml(c.backupPlatform)+' · ':''}${escHtml(c.backupName)}</span>` : '';
+  return plat + backup;
+}
+
 function renderCustomers() {
   const el = document.getElementById('cust-list');
   const statsEl = document.getElementById('platform-stats-row');
@@ -2317,16 +2391,14 @@ function renderCustomers() {
     return;
   }
 
-  // Platform stats
+  const clusters = buildCustomerClusters(orders)
+    .sort((a, b) => a.primaryName.localeCompare(b.primaryName, 'zh-TW'));
+
+  // Platform stats — one count per customer (cluster), by primary platform
   if (statsEl) {
     const platCount = {};
-    const buyerPlatMap = {};
-    orders.forEach(o => {
-      if (!buyerPlatMap[o.buyerName]) buyerPlatMap[o.buyerName] = o.platform || '未標示';
-    });
-    Object.values(buyerPlatMap).forEach(p => { platCount[p] = (platCount[p] || 0) + 1; });
-    const total = Object.values(platCount).reduce((s,n) => s+n, 0);
-    const cards = [['全部', total], ...Object.entries(platCount).sort((a,b) => b[1]-a[1])];
+    clusters.forEach(c => { const p = c.primaryPlatform || '未標示'; platCount[p] = (platCount[p] || 0) + 1; });
+    const cards = [['全部', clusters.length], ...Object.entries(platCount).sort((a,b) => b[1]-a[1])];
     statsEl.innerHTML = cards.map(([name, count]) => `
       <div class="stat-card">
         <div class="stat-num">${count}</div>
@@ -2334,29 +2406,23 @@ function renderCustomers() {
       </div>`).join('');
   }
 
-  // Group by buyer, merge items
-  const byBuyer = {};
-  const buyerPlatform = {};
-  const buyerStatuses = {};  // { buyer: { status: count } }
-  orders.forEach(o => {
-    if (!byBuyer[o.buyerName]) { byBuyer[o.buyerName] = {}; buyerStatuses[o.buyerName] = {}; }
-    if (o.platform) buyerPlatform[o.buyerName] = o.platform;
-    const s = o.status || 'pending';
-    buyerStatuses[o.buyerName][s] = (buyerStatuses[o.buyerName][s] || 0) + 1;
-    o.items.forEach(i => {
-      const k = itemGroupKey(i);
-      if (!byBuyer[o.buyerName][k]) byBuyer[o.buyerName][k] = {...i, quantity: 0};
-      byBuyer[o.buyerName][k].quantity += i.quantity;
+  el.innerHTML = clusters.map(c => {
+    const itemMap = {};
+    const statusCount = {};
+    c.orders.forEach(o => {
+      const s = o.status || 'pending';
+      statusCount[s] = (statusCount[s] || 0) + 1;
+      o.items.forEach(i => {
+        const k = itemGroupKey(i);
+        if (!itemMap[k]) itemMap[k] = {...i, quantity: 0};
+        itemMap[k].quantity += i.quantity;
+      });
     });
-  });
-
-  el.innerHTML = Object.entries(byBuyer).map(([buyer, itemMap]) => {
     const items = Object.values(itemMap);
     const total = items.reduce((s,i)=>s+i.quantity, 0);
-    const plat  = buyerPlatform[buyer] ? `<span style="font-weight:normal;font-size:.78rem;color:var(--muted);margin-left:6px">${escHtml(buyerPlatform[buyer])}</span>` : '';
-    const statusBadges = getStatusCycle().filter(s => buyerStatuses[buyer][s]).map(s => {
+    const statusBadges = getStatusCycle().filter(s => statusCount[s]).map(s => {
       const st = getStatusObj(s);
-      const cnt = buyerStatuses[buyer][s];
+      const cnt = statusCount[s];
       const countLabel = cnt > 1 ? ` ×${cnt}` : '';
       return `<span class="status-badge" style="${statusBadgeStyle(st.colorIdx)};font-size:.7rem;padding:2px 8px">${escHtml(st.label)}${countLabel}</span>`;
     }).join('');
@@ -2373,7 +2439,7 @@ function renderCustomers() {
     return `
       <div class="cust-block">
         <div class="cust-header">
-          <span>👤 ${escHtml(buyer)}${plat}</span>
+          <span>👤 ${escHtml(c.primaryName)}${custContactExtra(c)}</span>
           <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
             ${statusBadges}
             <span style="font-weight:normal;font-size:.8rem;color:var(--muted)">共 ${total} 個</span>
@@ -3316,59 +3382,60 @@ function renderGlobalCustomers() {
   const el = document.getElementById('global-cust-list');
   if (!el) return;
 
-  // Aggregate all buyers across all rounds
-  const allBuyers = {}; // name → { platform, rounds: {roundId: {name, orderCount, itemCount}}, totalItems, totalOrders }
-
+  // Gather every order across all rounds, tagged with its round
+  const allOrders = [];
+  const roundNameById = {};
   ROUNDS_META.forEach(r => {
+    roundNameById[r.id] = r.name;
     let roundOrders = [];
     try { roundOrders = JSON.parse(localStorage.getItem(r.id + '_orders') || '[]'); } catch {}
-    roundOrders.forEach(o => {
-      const name = o.buyerName;
-      if (!allBuyers[name]) allBuyers[name] = { platform: '', rounds: {}, totalItems: 0, totalOrders: 0 };
-      if (o.platform) allBuyers[name].platform = o.platform;
-      if (!allBuyers[name].rounds[r.id]) allBuyers[name].rounds[r.id] = { name: r.name, orderCount: 0, itemCount: 0 };
-      allBuyers[name].rounds[r.id].orderCount++;
-      const items = o.items.reduce((s, i) => s + i.quantity, 0);
-      allBuyers[name].rounds[r.id].itemCount += items;
-      allBuyers[name].totalItems += items;
-      allBuyers[name].totalOrders++;
-    });
+    roundOrders.forEach(o => allOrders.push({ ...o, _roundId: r.id }));
   });
 
-  const entries = Object.entries(allBuyers).sort((a, b) => a[0].localeCompare(b[0], 'zh-TW'));
+  const clusters = buildCustomerClusters(allOrders)
+    .sort((a, b) => a.primaryName.localeCompare(b.primaryName, 'zh-TW'));
 
-  if (!entries.length) {
+  if (!clusters.length) {
     el.innerHTML = '<div class="empty"><div class="ico">👥</div><div>尚無客戶資料</div></div>';
+    const statsEl = document.getElementById('global-stats-row');
+    if (statsEl) statsEl.innerHTML = '';
     return;
   }
 
   // Stats row
   const statsEl = document.getElementById('global-stats-row');
   if (statsEl) {
-    const totalCustomers = entries.length;
-    const totalOrders = entries.reduce((s, [,b]) => s + b.totalOrders, 0);
-    const repeatBuyers = entries.filter(([,b]) => Object.keys(b.rounds).length > 1).length;
+    const totalOrders = allOrders.length;
+    const repeatBuyers = clusters.filter(c => new Set(c.orders.map(o => o._roundId)).size > 1).length;
     statsEl.innerHTML = `
-      <div class="stat-card"><div class="stat-num">${totalCustomers}</div><div class="stat-label">總客戶數</div></div>
+      <div class="stat-card"><div class="stat-num">${clusters.length}</div><div class="stat-label">總客戶數</div></div>
       <div class="stat-card"><div class="stat-num">${totalOrders}</div><div class="stat-label">歷史訂單數</div></div>
       <div class="stat-card"><div class="stat-num">${repeatBuyers}</div><div class="stat-label">跨輪回頭客</div></div>
       <div class="stat-card"><div class="stat-num">${ROUNDS_META.length}</div><div class="stat-label">代購輪數</div></div>`;
   }
 
-  el.innerHTML = entries.map(([name, b]) => {
-    const roundTags = Object.values(b.rounds).map(r =>
+  el.innerHTML = clusters.map(c => {
+    const rounds = {};  // roundId → { name, orderCount }
+    let totalItems = 0;
+    c.orders.forEach(o => {
+      const rid = o._roundId;
+      if (!rounds[rid]) rounds[rid] = { name: roundNameById[rid] || '—', orderCount: 0 };
+      rounds[rid].orderCount++;
+      totalItems += o.items.reduce((s, i) => s + i.quantity, 0);
+    });
+    const roundTags = Object.values(rounds).map(r =>
       `<span style="display:inline-flex;align-items:center;gap:3px;background:#f0f0f0;border-radius:12px;padding:2px 8px;font-size:.73rem;font-weight:600">${escHtml(r.name)} <span style="color:var(--muted);font-weight:400">${r.orderCount}筆</span></span>`
     ).join('');
-    const isRepeat = Object.keys(b.rounds).length > 1;
+    const isRepeat = Object.keys(rounds).length > 1;
     return `
       <div class="cust-block">
         <div class="cust-header">
           <div>
-            <span>${escHtml(name)}</span>
-            ${b.platform ? `<span style="font-weight:normal;font-size:.78rem;color:var(--muted);margin-left:6px">${escHtml(b.platform)}</span>` : ''}
+            <span>${escHtml(c.primaryName)}</span>
+            ${custContactExtra(c)}
             ${isRepeat ? '<span style="margin-left:6px;font-size:.7rem;background:#fff3cd;color:#7d5800;padding:2px 7px;border-radius:10px;font-weight:700">回頭客</span>' : ''}
           </div>
-          <span style="font-size:.8rem;color:var(--muted)">共 ${b.totalItems} 件 · ${b.totalOrders} 筆訂單</span>
+          <span style="font-size:.8rem;color:var(--muted)">共 ${totalItems} 件 · ${c.orders.length} 筆訂單</span>
         </div>
         <div class="cust-items" style="display:flex;flex-wrap:wrap;gap:5px;padding:10px 16px">
           ${roundTags}
